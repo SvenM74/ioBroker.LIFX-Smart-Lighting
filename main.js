@@ -516,6 +516,11 @@ class Lifx extends utils.Adapter {
         await this.extendObjectAsync(`Bulb_${id}.colormode`, { common: { write: false } });
     }
     async createZone(id, zone) {
+        await this.setObjectNotExistsAsync(`Bulb_${id}.zone_${zone}`, {
+            type: 'channel',
+            common: { name: `Zone ${zone}`, role: 'channel' },
+            native: {},
+        });
         await this.setObjectNotExistsAsync(`Bulb_${id}.zone_${zone}.hue`, {
             type: 'state',
             common: {
