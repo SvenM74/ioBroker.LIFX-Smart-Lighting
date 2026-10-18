@@ -1,0 +1,93 @@
+{
+  "common": {
+    "name": "lifx-smart-lighting",
+    "version": "0.1.0",
+    "news": {
+      "0.1.0": {
+        "en": "Improve startup reliability and guard missing LIFX states.",
+        "de": "Startablauf stabilisiert und fehlende LIFX-States abgesichert.",
+        "ru": "Повышена надёжность запуска и добавлена защита от отсутствующих состояний LIFX.",
+        "pt": "Melhorada a fiabilidade do arranque e protegidos estados LIFX em falta.",
+        "nl": "Opstartbetrouwbaarheid verbeterd en ontbrekende LIFX-statussen afgevangen.",
+        "fr": "Fiabilité du démarrage améliorée et protection contre les états LIFX manquants.",
+        "it": "Migliorata l'affidabilità dell'avvio e gestiti gli stati LIFX mancanti.",
+        "es": "Se mejoró la fiabilidad del inicio y se protegieron los estados LIFX ausentes.",
+        "pl": "Poprawiono niezawodność uruchamiania i obsługę brakujących stanów LIFX.",
+        "uk": "Покращено надійність запуску та обробку відсутніх станів LIFX.",
+        "zh-cn": "提高启动可靠性并防止缺少 LIFX 状态时出错。"
+      }
+    },
+    "authors": [
+      "SvenM74"
+    ],
+    "titleLang": {
+      "en": "LIFX Smart Lighting",
+      "de": "LIFX Smart Lighting",
+      "ru": "лифкс лампы",
+      "pt": "lâmpadas lifx",
+      "nl": "lifx lampen",
+      "fr": "lampes lifx",
+      "it": "lampade a lume di candela",
+      "es": "lámparas lifx",
+      "pl": "lampy lifx",
+      "zh-cn": "升降灯",
+      "uk": "лампи lifx"
+    },
+    "desc": {
+      "en": "lifx lamp adaptor",
+      "de": "Lifx-Lampenadapter",
+      "ru": "адаптер светильника lifx",
+      "pt": "adaptador de lâmpada lifx",
+      "nl": "lifx-lampadapter",
+      "fr": "adaptateur de lampe lifx",
+      "it": "adattatore per lampada lifx",
+      "es": "adaptador de lámpara lifx",
+      "pl": "adapter lampy Lifx",
+      "zh-cn": "lifx灯适配器",
+      "uk": "адаптер для лампи lifx"
+    },
+    "platform": "Javascript/Node.js",
+    "mode": "daemon",
+    "adminUI": {
+      "config": "json"
+    },
+    "supportCustoms": false,
+    "compact": true,
+    "tier": 3,
+    "licenseInformation": {
+      "license": "MIT",
+      "link": "https://opensource.org/license/mit/",
+      "type": "free"
+    },
+    "keywords": [
+      "lifx",
+      "light"
+    ],
+    "type": "lighting",
+    "icon": "lifx_logo.png",
+    "extIcon": "https://raw.githubusercontent.com/SvenM74/ioBroker.LIFX-Smart-Lighting/main/admin/lifx_logo.png",
+    "readme": "https://github.com/SvenM74/ioBroker.LIFX-Smart-Lighting/blob/main/README.md",
+    "loglevel": "info",
+    "connectionType": "local",
+    "dataSource": "poll",
+    "restartAdapters": [
+      "vis",
+      "vis-2"
+    ],
+    "dependencies": [
+      {
+        "js-controller": ">=6.0.11"
+      }
+    ],
+    "globalDependencies": [
+      {
+        "admin": ">=7.6.20"
+      }
+    ]
+  },
+  "native": {
+    "lifx_interval": 30
+  },
+  "objects": [],
+  "instanceObjects": []
+}
