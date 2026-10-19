@@ -12,6 +12,7 @@ let lifxTimeout;
 let diagnosticsTimeout;
 let cloudTimeout;
 const effectRuns = new Map();
+const moveEffects = new Map();
 
 class Lifx extends utils.Adapter {
     /**
@@ -148,6 +149,7 @@ class Lifx extends utils.Adapter {
         }
 
         if (features.multizone === true) {
+            await this.createZoneEffect(light.id);
             try {
                 const infoZones = await this.requestLightData(light, 'getColorZones', 0, 255);
                 const count = Math.max(0, Number(infoZones?.count) || 0);
@@ -176,6 +178,11 @@ class Lifx extends utils.Adapter {
             } catch (error) {
                 this.log.debug(`Could not initialize zones for ${light.id}: ${error.message || error}`);
             }
+            const savedZoneEffect = await this.getStateAsync(`Bulb_${light.id}.zoneEffect`);
+            const desiredEffect = moveEffects.get(light.id) || savedZoneEffect?.val;
+            if (desiredEffect === 'move' || (moveEffects.has(light.id) && desiredEffect === 'off')) {
+                await this.executeZoneEffect(light.id, desiredEffect);
+            }
         }
     }
 
@@ -192,6 +199,65 @@ class Lifx extends utils.Adapter {
         await this.setStateAsync(`Bulb_${light.id}.effect`, { val: 'off', ack: true });
         await this.setStateAsync(`Bulb_${light.id}.online`, { val: false, ack: true });
         this.log.info(`LIFX light ${light.id} is offline`);
+    }
+
+    async createZoneEffect(id) {
+        await this.setObjectNotExistsAsync(`Bulb_${id}.zoneEffect`, {
+            type: 'state',
+            common: {
+                name: 'Zoneneffekt',
+                type: 'string',
+                role: 'text',
+                read: true,
+                write: true,
+                states: { off: 'Aus', move: 'Move' },
+            },
+            native: {},
+        });
+        const state = await this.getStateAsync(`Bulb_${id}.zoneEffect`);
+        if (state == null || state.val == null) {
+            await this.setStateAsync(`Bulb_${id}.zoneEffect`, { val: 'off', ack: true });
+        }
+    }
+
+    async executeZoneEffect(id, effect) {
+        const light = client.light(id);
+        const speedValue = Number(this.config.multiZoneMoveSpeed);
+        const speed = Number.isFinite(speedValue) ? Math.min(60000, Math.max(100, speedValue)) : 1500;
+        const direction = this.config.multiZoneMoveAway === true ? 'AWAY' : 'TOWARDS';
+
+        if (effect !== 'off' && effect !== 'move') {
+            this.log.warn(`Unsupported zone effect '${effect}' requested for ${id}`);
+            await this.setStateAsync(`Bulb_${id}.zoneEffect`, { val: 'off', ack: true });
+            return;
+        }
+        if (effect === 'move') {
+            const supportsMultizone = await this.getStateAsync(`Bulb_${id}.multizoneLamp`);
+            if (supportsMultizone?.val !== true || typeof light?.setMultiZoneEffect !== 'function') {
+                moveEffects.delete(id);
+                this.log.warn(`Move effect is not supported by LIFX device ${id}`);
+                await this.setStateAsync(`Bulb_${id}.zoneEffect`, { val: 'off', ack: true });
+                return;
+            }
+        }
+        moveEffects.set(id, effect);
+        if (!light || typeof light.setMultiZoneEffect !== 'function') {
+            await this.setStateAsync(`Bulb_${id}.zoneEffect`, { val: effect, ack: true });
+            return;
+        }
+
+        try {
+            await new Promise((resolve, reject) => {
+                light.setMultiZoneEffect(effect === 'move' ? 'MOVE' : 'OFF', speed, direction, error => {
+                    if (error) reject(error);
+                    else resolve();
+                });
+            });
+            await this.setStateAsync(`Bulb_${id}.zoneEffect`, { val: effect, ack: true });
+        } catch (error) {
+            this.log.warn(`Could not set zone effect for ${id}: ${error.message || error}`);
+            await this.setStateAsync(`Bulb_${id}.zoneEffect`, { val: effect, ack: true });
+        }
     }
 
     async ensureCloudStatusObjects() {
@@ -438,6 +504,7 @@ class Lifx extends utils.Adapter {
         try {
             const info = await this.requestLightData(light, 'getHardwareVersion');
             if (info?.productFeatures?.multizone === true) {
+                await this.createZoneEffect(light.id);
                 const zoneInfo = await this.requestLightData(light, 'getColorZones', 0, 255);
                 const count = Math.max(0, Number(zoneInfo?.count) || 0);
                 for (let offset = 0; offset < count; offset += 8) {
@@ -925,6 +992,15 @@ class Lifx extends utils.Adapter {
             }
             if (diagnosticsTimeout) clearTimeout(diagnosticsTimeout);
             if (cloudTimeout) clearTimeout(cloudTimeout);
+            for (const id of moveEffects.keys()) {
+                const light = client.light(id);
+                if (light && typeof light.setMultiZoneEffect === 'function') {
+                    light.setMultiZoneEffect('OFF', 1500, 'TOWARDS', error => {
+                        if (error) this.log.debug(`Could not stop Move effect for ${id}: ${error.message || error}`);
+                    });
+                }
+            }
+            moveEffects.clear();
             for (const [id, run] of effectRuns.entries()) {
                 if (run.interval) clearInterval(run.interval);
                 if (run.timeout) clearTimeout(run.timeout);
@@ -968,6 +1044,16 @@ class Lifx extends utils.Adapter {
             this.log.debug(`state ${id} changed: ${state.val} (ack = ${state.ack})`);
             if (state && !state.ack) {
                 const relativeId = id.startsWith(`${this.namespace}.`) ? id.slice(this.namespace.length + 1) : id;
+                if (relativeId.startsWith('Bulb_') && relativeId.endsWith('.zoneEffect')) {
+                    const lightId = relativeId.slice('Bulb_'.length, -'.zoneEffect'.length);
+                    try {
+                        await this.executeZoneEffect(lightId, String(state.val));
+                    } catch (error) {
+                        this.log.warn(`Zone effect command for ${lightId} failed: ${error.message || error}`);
+                        await this.setStateAsync(relativeId, { val: 'off', ack: true });
+                    }
+                    return;
+                }
                 if (relativeId.startsWith('Bulb_') && relativeId.endsWith('.effect')) {
                     const lightId = relativeId.slice('Bulb_'.length, -'.effect'.length);
                     try {

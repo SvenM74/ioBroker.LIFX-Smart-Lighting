@@ -14,6 +14,7 @@ An ioBroker adapter for discovering and controlling LIFX lamps on the local netw
 - Optionally synchronizes LIFX groups, locations, and scenes through the LIFX Cloud API
 - Provides writable group/location power controls and scene activation buttons
 - Provides per-light `effect` controls for Breathe, Pulse, Color Loop, and Off
+- Provides a separate `zoneEffect` control for the device-side Move effect on multizone lights
 - Creates objects before writing state values
 - Uses its own adapter ID and state namespace: lifx-smart-lighting.0
 
@@ -31,6 +32,7 @@ The adapter configuration is available in the ioBroker Admin UI.
 - Group and location power states control all matching lights through the LIFX Cloud API. Scene states expose an activation button.
 - Each light has a writable `effect` state. Breathe and Pulse run on the light for the configured number of cycles. Color Loop is managed by the adapter and runs until `effect` is set to `off`; stopping an effect restores the color saved when it started.
 - Effect color, cycle period/count, pulse duty cycle, and Color Loop speed can be set in the Admin UI. Color Loop is only available for color-capable lights.
+- Multizone lights get a writable `zoneEffect` state for the firmware Move effect. Its cycle duration and direction are configurable in the Admin UI. The effect is sent to and runs on the light itself.
 
 The Cloud API token is stored as a protected, encrypted native configuration value. Local discovery and control continue to work when Cloud integration is disabled. Cloud synchronization requires internet access and a valid token.
 

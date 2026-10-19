@@ -104,7 +104,9 @@
     "effectBrightness": 100,
     "effectKelvin": 3500,
     "effectPulseDuty": 0.5,
-    "effectColorLoopInterval": 3000
+    "effectColorLoopInterval": 3000,
+    "multiZoneMoveSpeed": 1500,
+    "multiZoneMoveAway": false
   },
   "objects": [],
   "instanceObjects": []

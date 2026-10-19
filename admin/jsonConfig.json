@@ -160,6 +160,24 @@
       "min": 250,
       "max": 60000,
       "default": 3000
+    },
+    "multiZoneMoveSpeed": {
+      "type": "number",
+      "label": {
+        "en": "Lightstrip Move cycle (milliseconds)",
+        "de": "Zyklusdauer für Move am Lightstrip (Millisekunden)"
+      },
+      "min": 100,
+      "max": 60000,
+      "default": 1500
+    },
+    "multiZoneMoveAway": {
+      "type": "checkbox",
+      "label": {
+        "en": "Move away from zone 0",
+        "de": "Move von Zone 0 weg bewegen"
+      },
+      "default": false
     }
   }
 }
