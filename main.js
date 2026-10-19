@@ -9,6 +9,8 @@ const utils = require('@iobroker/adapter-core');
 const LifxClient = require('lifx-lan-client').Client;
 const client = new LifxClient();
 let lifxTimeout;
+let diagnosticsTimeout;
+let cloudTimeout;
 
 class Lifx extends utils.Adapter {
     /**
@@ -185,6 +187,7 @@ class Lifx extends utils.Adapter {
                 val: true,
                 ack: true,
             });
+            await this.setStateAsync(`Bulb_${light.id}.lastSeen`, { val: Date.now(), ack: true });
         });
 
         client.on('light-offline', async light => {
@@ -208,7 +211,200 @@ class Lifx extends utils.Adapter {
 
         lifxTimeout = setTimeout(() => this.pollLifxData(), 5000);
 
+        await this.ensureCloudStatusObjects();
+        this.scheduleDiagnostics(10000);
+        if (this.config.cloudEnabled && this.config.cloudToken) {
+            this.scheduleCloudSync(10000);
+        } else {
+            await this.setStateAsync('info.cloudConnected', { val: false, ack: true });
+        }
+
         this.subscribeStates('*');
+    }
+
+    async ensureCloudStatusObjects() {
+        await this.setObjectNotExistsAsync('info', {
+            type: 'channel',
+            common: { name: 'Adapter status', role: 'info' },
+            native: {},
+        });
+        for (const [id, name, type, role] of [
+            ['cloudConnected', 'Cloud API verbunden', 'boolean', 'indicator.reachable'],
+            ['lastCloudSync', 'Letzte Cloud-Synchronisierung', 'number', 'value.time'],
+            ['cloudError', 'Letzter Cloud-Fehler', 'string', 'text'],
+        ]) {
+            await this.setObjectNotExistsAsync(`info.${id}`, {
+                type: 'state',
+                common: { name, type, role, read: true, write: false },
+                native: {},
+            });
+        }
+    }
+
+    scheduleDiagnostics(delay = (Number(this.config.diagnosticsInterval) || 300) * 1000) {
+        if (!this.config.diagnosticsEnabled) return;
+        diagnosticsTimeout = setTimeout(async () => {
+            try {
+                for (const light of client.lights('on')) await this.updateDiagnostics(light);
+            } catch (error) {
+                this.log.debug(`LIFX diagnostics update failed: ${error.message || error}`);
+            }
+            this.scheduleDiagnostics();
+        }, delay);
+    }
+
+    async updateDiagnostics(light) {
+        const id = `Bulb_${light.id}`;
+        if (!(await this.getObjectAsync(`${id}.online`))) {
+            await this.createBasic(light.id, `LIFX ${light.id}`, 1500, 9000);
+        }
+        await this.setStateAsync(`${id}.lastSeen`, { val: Date.now(), ack: true });
+        if (typeof light.getWifiInfo === 'function') {
+            light.getWifiInfo(async (err, wifi) => {
+                if (err || !wifi) {
+                    this.log.debug(`Failed getting Wi-Fi diagnostics for ${light.id}: ${err || 'no data'}`);
+                    return;
+                }
+                for (const [key, val] of [['wifiSignal', wifi.signal], ['wifiTx', wifi.tx], ['wifiRx', wifi.rx]]) {
+                    if (Number.isFinite(Number(val))) await this.setStateAsync(`${id}.${key}`, { val: Number(val), ack: true });
+                }
+            });
+        }
+        if (typeof light.getFirmwareVersion === 'function') {
+            light.getFirmwareVersion(async (err, version) => {
+                if (err || !version) return;
+                const value = typeof version === 'string' ? version : `${version.majorVersion}.${version.minorVersion}`;
+                await this.setStateAsync(`${id}.firmwareVersion`, { val: value, ack: true });
+            });
+        }
+    }
+
+    scheduleCloudSync(delay = 0) {
+        if (!this.config.cloudEnabled || !this.config.cloudToken) return;
+        cloudTimeout = setTimeout(async () => {
+            try {
+                await this.syncCloudData();
+                await this.setStateAsync('info.cloudConnected', { val: true, ack: true });
+                await this.setStateAsync('info.lastCloudSync', { val: Date.now(), ack: true });
+                await this.setStateAsync('info.cloudError', { val: '', ack: true });
+            } catch (error) {
+                await this.setStateAsync('info.cloudConnected', { val: false, ack: true });
+                await this.setStateAsync('info.cloudError', { val: error.message || String(error), ack: true });
+                this.log.warn(`LIFX Cloud sync failed: ${error.message || error}`);
+            }
+            this.scheduleCloudSync((Number(this.config.cloudPollInterval) || 300) * 1000);
+        }, delay);
+    }
+
+    async cloudRequest(path, method = 'GET', body) {
+        const response = await fetch(`https://api.lifx.com/v1${path}`, {
+            method,
+            headers: {
+                Authorization: `Bearer ${this.config.cloudToken}`,
+                ...(body ? { 'Content-Type': 'application/json' } : {}),
+            },
+            ...(body ? { body: JSON.stringify(body) } : {}),
+            signal: AbortSignal.timeout(15000),
+        });
+        if (!response.ok) throw new Error(`LIFX Cloud returned HTTP ${response.status}`);
+        if (response.status === 204) return null;
+        return response.json();
+    }
+
+    async syncCloudData() {
+        const lights = await this.cloudRequest('/lights/all');
+        if (!Array.isArray(lights)) throw new Error('Unexpected response from LIFX Cloud lights endpoint');
+        if (this.config.syncGroups !== false) await this.syncCloudCollections(lights, 'group');
+        if (this.config.syncLocations !== false) await this.syncCloudCollections(lights, 'location');
+        for (const light of lights) {
+            const localId = `Bulb_${light.id}`;
+            if (!(await this.getObjectAsync(localId))) continue;
+            const groupId = light.group?.id || '';
+            const locationId = light.location?.id || '';
+            await this.setStateAsync(`${localId}.group`, { val: light.group?.name || '', ack: true });
+            await this.setStateAsync(`${localId}.groupId`, { val: groupId, ack: true });
+            await this.setStateAsync(`${localId}.location`, { val: light.location?.name || '', ack: true });
+            await this.setStateAsync(`${localId}.locationId`, { val: locationId, ack: true });
+        }
+        if (this.config.syncScenes !== false) {
+            const scenes = await this.cloudRequest('/scenes');
+            if (Array.isArray(scenes)) await this.syncCloudScenes(scenes);
+        }
+    }
+
+    async syncCloudCollections(lights, kind) {
+        const collectionKey = kind === 'group' ? 'group' : 'location';
+        const objectRoot = kind === 'group' ? 'Groups' : 'Locations';
+        const collections = new Map();
+        for (const light of lights) {
+            const collection = light[collectionKey];
+            if (!collection?.id) continue;
+            const entry = collections.get(collection.id) || { ...collection, members: [], power: 'off' };
+            entry.members.push(light.label || light.id);
+            if (light.power === 'on') entry.power = 'on';
+            collections.set(collection.id, entry);
+        }
+        for (const [id, collection] of collections) {
+            const safeId = encodeURIComponent(id).replace(/%/g, '_');
+            const path = `${objectRoot}.${safeId}`;
+            await this.setObjectNotExistsAsync(path, {
+                type: 'channel',
+                common: { name: collection.name || id, role: 'channel' },
+                native: { lifxId: id },
+            });
+            for (const [stateId, name, type, role, write] of [
+                ['name', 'Name', 'string', 'info.name', false],
+                ['members', 'Lampen', 'string', 'json', false],
+                ['power', 'Ein/Aus', 'boolean', 'switch', true],
+            ]) {
+                await this.setObjectNotExistsAsync(`${path}.${stateId}`, {
+                    type: 'state', common: { name, type, role, read: true, write }, native: {},
+                });
+            }
+            await this.setStateAsync(`${path}.name`, { val: collection.name || id, ack: true });
+            await this.setStateAsync(`${path}.members`, { val: JSON.stringify(collection.members), ack: true });
+            await this.setStateAsync(`${path}.power`, { val: collection.power === 'on', ack: true });
+        }
+    }
+
+    async syncCloudScenes(scenes) {
+        for (const scene of scenes) {
+            if (!scene.uuid) continue;
+            const safeId = encodeURIComponent(scene.uuid).replace(/%/g, '_');
+            const path = `Scenes.${safeId}`;
+            await this.setObjectNotExistsAsync(path, {
+                type: 'channel', common: { name: scene.name || scene.uuid, role: 'channel' },
+                native: { sceneId: scene.uuid },
+            });
+            await this.setObjectNotExistsAsync(`${path}.activate`, {
+                type: 'state',
+                common: { name: 'Szene aktivieren', type: 'boolean', role: 'button', read: false, write: true },
+                native: { sceneId: scene.uuid },
+            });
+        }
+    }
+
+    async executeCloudCommand(relativeId, state) {
+        const parts = relativeId.split('.');
+        if (parts[0] === 'Scenes' && parts.at(-1) === 'activate') {
+            const object = await this.getObjectAsync(relativeId);
+            const sceneId = object?.native?.sceneId;
+            if (!sceneId) return false;
+            if (state.val) await this.cloudRequest(`/scenes/scene_id:${encodeURIComponent(sceneId)}/activate`, 'PUT', {});
+            await this.setStateAsync(relativeId, { val: false, ack: true });
+            return true;
+        }
+        if ((parts[0] === 'Groups' || parts[0] === 'Locations') && parts.at(-1) === 'power') {
+            const channelId = parts.slice(0, -1).join('.');
+            const object = await this.getObjectAsync(channelId);
+            const lifxId = object?.native?.lifxId;
+            if (!lifxId) return false;
+            const selectorKey = parts[0] === 'Groups' ? 'group_id' : 'location_id';
+            const selector = `${selectorKey}:${lifxId}`;
+            await this.cloudRequest(`/lights/${encodeURIComponent(selector)}/state`, 'PUT', { power: state.val ? 'on' : 'off' });
+            return true;
+        }
+        return false;
     }
 
     async pollLifxData() {
@@ -232,6 +428,8 @@ class Lifx extends utils.Adapter {
                         val: info.label,
                         ack: true,
                     });
+                    await this.setStateAsync(`Bulb_${light.id}.online`, { val: true, ack: true });
+                    await this.setStateAsync(`Bulb_${light.id}.lastSeen`, { val: Date.now(), ack: true });
                     const convertPower = info.power == 1 ? true : false;
                     await this.setStateAsync(`Bulb_${light.id}.state`, {
                         val: convertPower,
@@ -459,6 +657,28 @@ class Lifx extends utils.Adapter {
             },
             native: {},
         });
+        for (const [stateId, name, type, role, unit] of [
+            ['lastSeen', 'Zuletzt erreichbar', 'number', 'value.time', 'ms'],
+            ['wifiSignal', 'WLAN-Signal (LIFX Rohwert)', 'number', 'value', 'mW'],
+            ['wifiTx', 'WLAN gesendete Pakete', 'number', 'value', ''],
+            ['wifiRx', 'WLAN empfangene Pakete', 'number', 'value', ''],
+        ]) {
+            await this.setObjectNotExistsAsync(`Bulb_${id}.${stateId}`, {
+                type: 'state',
+                common: { name, type, role, read: true, write: false, ...(unit ? { unit } : {}) },
+                native: {},
+            });
+        }
+        await this.setObjectNotExistsAsync(`Bulb_${id}.firmwareVersion`, {
+            type: 'state',
+            common: { name: 'Firmware-Version', type: 'string', role: 'text', read: true, write: false },
+            native: {},
+        });
+        for (const [stateId, name] of [['group', 'Gruppe'], ['groupId', 'Gruppen-ID'], ['location', 'Standort'], ['locationId', 'Standort-ID']]) {
+            await this.setObjectNotExistsAsync(`Bulb_${id}.${stateId}`, {
+                type: 'state', common: { name, type: 'string', role: 'text', read: true, write: false }, native: {},
+            });
+        }
         await this.setObjectNotExistsAsync(`Bulb_${id}.hue`, {
             type: 'state',
             common: {
@@ -596,6 +816,8 @@ class Lifx extends utils.Adapter {
             if (lifxTimeout) {
                 clearTimeout(lifxTimeout);
             }
+            if (diagnosticsTimeout) clearTimeout(diagnosticsTimeout);
+            if (cloudTimeout) clearTimeout(cloudTimeout);
             callback();
         } catch (e) {
             this.log.error(e);
@@ -631,6 +853,15 @@ class Lifx extends utils.Adapter {
             // The state was changed
             this.log.debug(`state ${id} changed: ${state.val} (ack = ${state.ack})`);
             if (state && !state.ack) {
+                const relativeId = id.startsWith(`${this.namespace}.`) ? id.slice(this.namespace.length + 1) : id;
+                if (['Groups.', 'Locations.', 'Scenes.'].some(prefix => relativeId.startsWith(prefix))) {
+                    try {
+                        await this.executeCloudCommand(relativeId, state);
+                    } catch (error) {
+                        this.log.warn(`Cloud command for ${relativeId} failed: ${error.message || error}`);
+                    }
+                    return;
+                }
                 this.log.debug('ack is not set! -> command');
                 const tmp = id.split('.');
                 const dp = tmp.pop();

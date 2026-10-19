@@ -1,0 +1,85 @@
+{
+  "type": "panel",
+  "i18n": true,
+  "items": {
+    "lifx_interval": {
+      "type": "number",
+      "label": {
+        "en": "Local device polling interval (seconds)",
+        "de": "Abfrageintervall lokaler Geräte (Sekunden)"
+      },
+      "min": 5,
+      "max": 3600,
+      "default": 30
+    },
+    "diagnosticsEnabled": {
+      "type": "checkbox",
+      "label": {
+        "en": "Collect Wi-Fi and firmware diagnostics",
+        "de": "WLAN- und Firmware-Diagnosewerte erfassen"
+      },
+      "default": true
+    },
+    "diagnosticsInterval": {
+      "type": "number",
+      "label": {
+        "en": "Diagnostics interval (seconds)",
+        "de": "Diagnoseintervall (Sekunden)"
+      },
+      "min": 30,
+      "max": 86400,
+      "default": 300
+    },
+    "cloudEnabled": {
+      "type": "checkbox",
+      "label": {
+        "en": "Enable optional LIFX Cloud integration",
+        "de": "Optionale LIFX-Cloud-Integration aktivieren"
+      },
+      "default": false
+    },
+    "cloudToken": {
+      "type": "password",
+      "encrypted": true,
+      "label": {
+        "en": "LIFX Cloud API token",
+        "de": "LIFX-Cloud-API-Token"
+      },
+      "default": ""
+    },
+    "cloudPollInterval": {
+      "type": "number",
+      "label": {
+        "en": "Cloud synchronization interval (seconds)",
+        "de": "Cloud-Synchronisierungsintervall (Sekunden)"
+      },
+      "min": 60,
+      "max": 86400,
+      "default": 300
+    },
+    "syncGroups": {
+      "type": "checkbox",
+      "label": {
+        "en": "Synchronize groups",
+        "de": "Gruppen synchronisieren"
+      },
+      "default": true
+    },
+    "syncLocations": {
+      "type": "checkbox",
+      "label": {
+        "en": "Synchronize locations",
+        "de": "Standorte synchronisieren"
+      },
+      "default": true
+    },
+    "syncScenes": {
+      "type": "checkbox",
+      "label": {
+        "en": "Synchronize scenes and create activation controls",
+        "de": "Szenen synchronisieren und Aktivierungsschalter anlegen"
+      },
+      "default": true
+    }
+  }
+}

@@ -51,6 +51,7 @@
     "adminUI": {
       "config": "json"
     },
+    "protectedNative": ["cloudToken"],
     "supportCustoms": false,
     "compact": true,
     "tier": 3,
@@ -85,8 +86,17 @@
       }
     ]
   },
+  "encryptedNative": ["cloudToken"],
   "native": {
-    "lifx_interval": 30
+    "lifx_interval": 30,
+    "diagnosticsEnabled": true,
+    "diagnosticsInterval": 300,
+    "cloudEnabled": false,
+    "cloudToken": "",
+    "cloudPollInterval": 300,
+    "syncGroups": true,
+    "syncLocations": true,
+    "syncScenes": true
   },
   "objects": [],
   "instanceObjects": []
