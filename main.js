@@ -129,6 +129,7 @@ class Lifx extends utils.Adapter {
             ['infraredLamp', features.infrared === true],
             ['multizoneLamp', features.multizone === true],
             ['label', state?.label || ''],
+            ['rename', state?.label || ''],
             ['state', state?.power === 1],
             ['bright', state?.color?.brightness ?? 0],
             ['temp', state?.color?.kelvin ?? range[0]],
@@ -136,6 +137,21 @@ class Lifx extends utils.Adapter {
             ['lastSeen', Date.now()],
         ]) {
             await this.setStateAsync(`Bulb_${light.id}.${stateId}`, { val: value, ack: true });
+        }
+
+        if (features.infrared === true) {
+            await this.createInfrared(light.id);
+            try {
+                const infrared = await this.requestLightData(light, 'getMaxIR');
+                if (infrared && Number.isFinite(Number(infrared.brightness))) {
+                    await this.setStateAsync(`Bulb_${light.id}.infraredBrightness`, {
+                        val: Number(infrared.brightness),
+                        ack: true,
+                    });
+                }
+            } catch (error) {
+                this.log.debug(`Could not read infrared brightness for ${light.id}: ${error.message || error}`);
+            }
         }
 
         if (features.color === true) {
@@ -218,6 +234,54 @@ class Lifx extends utils.Adapter {
         if (state == null || state.val == null) {
             await this.setStateAsync(`Bulb_${id}.zoneEffect`, { val: 'off', ack: true });
         }
+    }
+
+    async createInfrared(id) {
+        await this.setObjectNotExistsAsync(`Bulb_${id}.infraredBrightness`, {
+            type: 'state',
+            common: {
+                name: 'Infrarot-Helligkeit',
+                type: 'number',
+                role: 'level.dimmer',
+                read: true,
+                write: true,
+                min: 0,
+                max: 100,
+                unit: '%',
+            },
+            native: {},
+        });
+    }
+
+    async executeInfrared(id, brightness) {
+        const value = Number(brightness);
+        const light = client.light(id);
+        if (!Number.isFinite(value) || value < 0 || value > 100) {
+            throw new Error('Infrarot-Helligkeit muss zwischen 0 und 100 liegen');
+        }
+        if (!light || typeof light.maxIR !== 'function') {
+            throw new Error(`LIFX light ${id} does not support infrared control`);
+        }
+        await new Promise((resolve, reject) => {
+            light.maxIR(value, error => error ? reject(error) : resolve());
+        });
+        await this.setStateAsync(`Bulb_${id}.infraredBrightness`, { val: value, ack: true });
+    }
+
+    async renameLight(id, label) {
+        const value = String(label ?? '').trim();
+        const light = client.light(id);
+        if (!value) throw new Error('Der Lampenname darf nicht leer sein');
+        if (Buffer.byteLength(value, 'utf8') > 32) throw new Error('Der Lampenname darf maximal 32 UTF-8-Bytes lang sein');
+        if (!light || typeof light.setLabel !== 'function') {
+            throw new Error(`LIFX light ${id} is not available for renaming`);
+        }
+        await new Promise((resolve, reject) => {
+            light.setLabel(value, error => error ? reject(error) : resolve());
+        });
+        await this.setStateAsync(`Bulb_${id}.label`, { val: value, ack: true });
+        await this.setStateAsync(`Bulb_${id}.rename`, { val: value, ack: true });
+        await this.extendObjectAsync(`Bulb_${id}`, { common: { name: `LIFX ${value}` } });
     }
 
     async executeZoneEffect(id, effect) {
@@ -479,6 +543,7 @@ class Lifx extends utils.Adapter {
             const color = state.color || {};
             for (const [stateId, value] of [
                 ['label', state.label || 'LIFX ' + light.id],
+                ['rename', state.label || 'LIFX ' + light.id],
                 ['online', true],
                 ['lastSeen', Date.now()],
                 ['state', state.power === 1],
@@ -503,6 +568,16 @@ class Lifx extends utils.Adapter {
 
         try {
             const info = await this.requestLightData(light, 'getHardwareVersion');
+            if (info?.productFeatures?.infrared === true) {
+                await this.createInfrared(light.id);
+                const infrared = await this.requestLightData(light, 'getMaxIR');
+                if (infrared && Number.isFinite(Number(infrared.brightness))) {
+                    await this.setStateAsync(path + '.infraredBrightness', {
+                        val: Number(infrared.brightness),
+                        ack: true,
+                    });
+                }
+            }
             if (info?.productFeatures?.multizone === true) {
                 await this.createZoneEffect(light.id);
                 const zoneInfo = await this.requestLightData(light, 'getColorZones', 0, 255);
@@ -551,6 +626,18 @@ class Lifx extends utils.Adapter {
                 read: true,
                 write: false,
                 desc: 'Label',
+            },
+            native: {},
+        });
+        await this.setObjectNotExistsAsync(`Bulb_${id}.rename`, {
+            type: 'state',
+            common: {
+                name: 'Lampe umbenennen',
+                type: 'string',
+                role: 'text',
+                read: true,
+                write: true,
+                desc: 'Neuen Namen auf der LIFX-Lampe speichern (max. 32 UTF-8-Bytes)',
             },
             native: {},
         });
@@ -1051,6 +1138,32 @@ class Lifx extends utils.Adapter {
                     } catch (error) {
                         this.log.warn(`Zone effect command for ${lightId} failed: ${error.message || error}`);
                         await this.setStateAsync(relativeId, { val: 'off', ack: true });
+                    }
+                    return;
+                }
+                if (relativeId.startsWith('Bulb_') && relativeId.endsWith('.infraredBrightness')) {
+                    const lightId = relativeId.slice('Bulb_'.length, -'.infraredBrightness'.length);
+                    try {
+                        await this.executeInfrared(lightId, state.val);
+                    } catch (error) {
+                        this.log.warn(`Infrared command for ${lightId} failed: ${error.message || error}`);
+                        const current = await this.requestLightData(client.light(lightId), 'getMaxIR').catch(() => null);
+                        if (current && Number.isFinite(Number(current.brightness))) {
+                            await this.setStateAsync(relativeId, { val: Number(current.brightness), ack: true });
+                        }
+                    }
+                    return;
+                }
+                if (relativeId.startsWith('Bulb_') && relativeId.endsWith('.rename')) {
+                    const lightId = relativeId.slice('Bulb_'.length, -'.rename'.length);
+                    try {
+                        await this.renameLight(lightId, state.val);
+                    } catch (error) {
+                        this.log.warn(`Rename command for ${lightId} failed: ${error.message || error}`);
+                        const current = await this.requestLightData(client.light(lightId), 'getLabel').catch(() => null);
+                        if (typeof current === 'string') {
+                            await this.setStateAsync(relativeId, { val: current, ack: true });
+                        }
                     }
                     return;
                 }
