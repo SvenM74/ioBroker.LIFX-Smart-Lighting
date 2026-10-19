@@ -10,6 +10,7 @@ An ioBroker adapter for discovering and controlling LIFX lamps on the local netw
 - Reports lamp status, color, brightness, and temperature
 - Controls power, color, brightness, and transition duration
 - Reports last-seen time, Wi-Fi signal and packet counters, and firmware version
+- Tracks device timeouts, marks unreachable lights offline, and refreshes their state after reconnection
 - Optionally synchronizes LIFX groups, locations, and scenes through the LIFX Cloud API
 - Provides writable group/location power controls and scene activation buttons
 - Provides per-light `effect` controls for Breathe, Pulse, Color Loop, and Off

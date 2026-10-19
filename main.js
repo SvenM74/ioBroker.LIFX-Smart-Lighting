@@ -22,6 +22,7 @@ class Lifx extends utils.Adapter {
             ...options,
             name: 'lifx-smart-lighting',
         });
+        this.stopping = false;
         this.on('ready', this.onReady.bind(this));
         this.on('stateChange', this.onStateChange.bind(this));
         // this.on('objectChange', this.onObjectChange.bind(this));
@@ -34,172 +35,20 @@ class Lifx extends utils.Adapter {
      */
     async onReady() {
         // Initialize your adapter here
-        client.on('light-new', async light => {
-            await this.createBasic(light.id, light.label || `LIFX ${light.id}`, 1500, 9000);
-            this.log.info('New light found.');
-            this.log.info(`ID: ${light.id}`);
-            this.log.info(`IP: ${light.address}:${light.port}`);
-            light.getHardwareVersion(async (err, info) => {
-                if (err) {
-                    this.log.error(`Failed calling getHardwareVersion :${err}`);
-                } else {
-                    light.getState(async (err, state) => {
-                        if (err) {
-                            this.log.debug(`Failed calling getState :${err}`);
-                        } else {
-                            await this.createBasic(
-                                light.id,
-                                state.label || 'no label',
-                                info.productFeatures.temperature_range[0],
-                                info.productFeatures.temperature_range[1],
-                            );
-
-                            this.log.info(`Vendor: ${info.vendorName}`);
-                            this.log.info(`Product: ${info.productName}`);
-                            this.log.info(`Label: ${state.label}`);
-                            this.log.info(`Power: ${state.power == 1 ? 'on' : 'off'}`);
-                            this.log.info(`Features:${JSON.stringify(info.productFeatures)}\n`);
-                            this.log.info(`Infos: ${JSON.stringify(info)}`);
-                            this.log.info(`States: ${JSON.stringify(state)}`);
-
-                            await this.setStateAsync(`Bulb_${light.id}.vendor`, {
-                                val: info.vendorName,
-                                ack: true,
-                            });
-                            await this.setStateAsync(`Bulb_${light.id}.product`, {
-                                val: info.productName,
-                                ack: true,
-                            });
-                            await this.setStateAsync(`Bulb_${light.id}.version`, {
-                                val: String(info.version),
-                                ack: true,
-                            });
-                            await this.setStateAsync(`Bulb_${light.id}.colorLamp`, {
-                                val: info.productFeatures.color,
-                                ack: true,
-                            });
-                            await this.setStateAsync(`Bulb_${light.id}.infraredLamp`, {
-                                val: info.productFeatures.infrared,
-                                ack: true,
-                            });
-                            await this.setStateAsync(`Bulb_${light.id}.multizoneLamp`, {
-                                val: info.productFeatures.multizone,
-                                ack: true,
-                            });
-
-                            await this.setStateAsync(`Bulb_${light.id}.label`, {
-                                val: state.label,
-                                ack: true,
-                            });
-                            const convertPower = state.power == 1 ? true : false;
-                            await this.setStateAsync(`Bulb_${light.id}.state`, {
-                                val: convertPower,
-                                ack: true,
-                            });
-                            await this.setStateAsync(`Bulb_${light.id}.duration`, {
-                                val: 500,
-                                ack: true,
-                            });
-                            await this.setStateAsync(`Bulb_${light.id}.bright`, {
-                                val: state.color.brightness,
-                                ack: true,
-                            });
-                            await this.setStateAsync(`Bulb_${light.id}.temp`, {
-                                val: state.color.kelvin,
-                                ack: true,
-                            });
-                            await this.setStateAsync(`Bulb_${light.id}.online`, {
-                                val: true,
-                                ack: true,
-                            }); // because we found the lamp
-                        }
-                        if (info.productFeatures.color === true) {
-                            await this.createColor(light.id);
-                            light.getState(async (err, state) => {
-                                if (err) {
-                                    this.log.debug(err);
-                                } else {
-                                    await this.setStateAsync(`Bulb_${light.id}.hue`, {
-                                        val: state.color.hue,
-                                        ack: true,
-                                    });
-                                    await this.setStateAsync(`Bulb_${light.id}.sat`, {
-                                        val: state.color.saturation,
-                                        ack: true,
-                                    });
-                                    await this.setStateAsync(`Bulb_${light.id}.colormode`, {
-                                        val: 'white',
-                                        ack: true,
-                                    }); // initial setting to white
-                                }
-                            });
-                        }
-                        if (info.productFeatures.multizone === true) {
-                            light.getColorZones(0, 255, async (err, mz) => {
-                                if (err) {
-                                    this.log.debug(err);
-                                } else {
-                                    const mquery = mz.count / 8; //je Antwort sind 8 Zonen übermittelt mz.count enthält die Anzahl der Zonen
-                                    for (let z = 0; z < mz.count; z++) {
-                                        await this.createZone(light.id, z);
-                                    }
-                                    for (let i = 0; i < mquery; i++) {
-                                        light.getColorZones(i * 8, 7 + i * 8, async (err, multiz) => {
-                                            if (err) {
-                                                this.log.debug(err);
-                                            } else {
-                                                this.log.info(`Multizzone: ${JSON.stringify(multiz)}`);
-                                                for (let j = 0; j < 8; j++) {
-                                                    await this.setStateAsync(
-                                                        `Bulb_${light.id}.zone_${parseInt(j + multiz.index)}.hue`,
-                                                        { val: multiz.color[j].hue, ack: true },
-                                                    );
-                                                    await this.setStateAsync(
-                                                        `Bulb_${light.id}.zone_${parseInt(j + multiz.index)}.sat`,
-                                                        { val: multiz.color[j].saturation, ack: true },
-                                                    );
-                                                    await this.setStateAsync(
-                                                        `Bulb_${light.id}.zone_${parseInt(j + multiz.index)}.bright`,
-                                                        { val: multiz.color[j].brightness, ack: true },
-                                                    );
-                                                    await this.setStateAsync(
-                                                        `Bulb_${light.id}.zone_${parseInt(j + multiz.index)}.temp`,
-                                                        { val: multiz.color[j].kelvin, ack: true },
-                                                    );
-                                                }
-                                            }
-                                        });
-                                    }
-                                }
-                            });
-                        }
-                    });
-                }
-            });
-            // if multzone the create zones and their colors, and start/end zone index
+        client.on('light-new', light => {
+            this.handleNewLight(light).catch(error => this.handleLightError(light, 'initialization', error));
         });
 
-        client.on('light-online', async light => {
-            if (!(await this.getObjectAsync(`Bulb_${light.id}.online`))) {
-                await this.createBasic(light.id, `LIFX ${light.id}`, 1500, 9000);
-            }
-            this.log.info(`Light back online. ID:${light.id}, IP:${light.address}:${light.port}\n`);
-            await this.setStateAsync(`Bulb_${light.id}.online`, {
-                val: true,
-                ack: true,
-            });
-            await this.setStateAsync(`Bulb_${light.id}.lastSeen`, { val: Date.now(), ack: true });
+        client.on('light-online', light => {
+            this.handleLightOnline(light).catch(error => this.handleLightError(light, 'reconnection', error));
         });
 
-        client.on('light-offline', async light => {
-            if (!(await this.getObjectAsync(`Bulb_${light.id}.online`))) {
-                await this.createBasic(light.id, `LIFX ${light.id}`, 1500, 9000);
-            }
-            this.log.info(`Light offline. ID:${light.id}, IP:${light.address}:${light.port}\n`);
-            await this.setStateAsync(`Bulb_${light.id}.online`, {
-                val: false,
-                ack: true,
-            });
+        client.on('light-offline', light => {
+            this.handleLightOffline(light).catch(error => this.handleLightError(light, 'offline update', error));
+        });
+
+        client.on('error', error => {
+            this.log.error('LIFX client error: ' + (error?.message || error));
         });
 
         client.on('listening', () => {
@@ -221,6 +70,128 @@ class Lifx extends utils.Adapter {
         }
 
         this.subscribeStates('*');
+    }
+
+    requestLightData(light, method, ...args) {
+        return new Promise((resolve, reject) => {
+            const request = light?.[method];
+            if (typeof request !== 'function') {
+                reject(new Error(`LIFX device does not support ${method}`));
+                return;
+            }
+            let settled = false;
+            const callback = (error, result) => {
+                if (settled) return;
+                settled = true;
+                if (error) reject(error);
+                else resolve(result);
+            };
+            try {
+                request.call(light, ...args, callback);
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    async handleLightError(light, action, error) {
+        const id = light?.id;
+        this.log.warn(`LIFX ${action} failed${id ? ` for ${id}` : ''}: ${error?.message || error}`);
+        if (!id) return;
+        try {
+            if (!(await this.getObjectAsync(`Bulb_${id}.online`))) {
+                await this.createBasic(id, `LIFX ${id}`, 1500, 9000);
+            }
+            await this.stopEffect(id, false);
+            await this.setStateAsync(`Bulb_${id}.effect`, { val: 'off', ack: true });
+            await this.setStateAsync(`Bulb_${id}.online`, { val: false, ack: true });
+        } catch (stateError) {
+            this.log.error(`Could not update connection state for ${id}: ${stateError?.message || stateError}`);
+        }
+    }
+
+    async handleNewLight(light) {
+        await this.createBasic(light.id, light.label || `LIFX ${light.id}`, 1500, 9000);
+        this.log.info(`Discovered LIFX light ${light.id} at ${light.address}:${light.port}`);
+
+        const info = await this.requestLightData(light, 'getHardwareVersion');
+        const state = await this.requestLightData(light, 'getState');
+        const features = info?.productFeatures || {};
+        const range = features.temperature_range || [1500, 9000];
+        await this.createBasic(light.id, state?.label || `LIFX ${light.id}`, range[0], range[1]);
+
+        for (const [stateId, value] of [
+            ['vendor', info.vendorName || ''],
+            ['product', info.productName || ''],
+            ['version', String(info.version ?? '')],
+            ['colorLamp', features.color === true],
+            ['infraredLamp', features.infrared === true],
+            ['multizoneLamp', features.multizone === true],
+            ['label', state?.label || ''],
+            ['state', state?.power === 1],
+            ['bright', state?.color?.brightness ?? 0],
+            ['temp', state?.color?.kelvin ?? range[0]],
+            ['online', true],
+            ['lastSeen', Date.now()],
+        ]) {
+            await this.setStateAsync(`Bulb_${light.id}.${stateId}`, { val: value, ack: true });
+        }
+
+        if (features.color === true) {
+            await this.createColor(light.id);
+            await this.setStateAsync(`Bulb_${light.id}.hue`, { val: state?.color?.hue ?? 0, ack: true });
+            await this.setStateAsync(`Bulb_${light.id}.sat`, { val: state?.color?.saturation ?? 0, ack: true });
+            await this.setStateAsync(`Bulb_${light.id}.colormode`, {
+                val: (state?.color?.saturation ?? 0) > 0 ? 'color' : 'white',
+                ack: true,
+            });
+        }
+
+        if (features.multizone === true) {
+            try {
+                const infoZones = await this.requestLightData(light, 'getColorZones', 0, 255);
+                const count = Math.max(0, Number(infoZones?.count) || 0);
+                for (let offset = 0; offset < count; offset += 8) {
+                    const result = await this.requestLightData(
+                        light,
+                        'getColorZones',
+                        offset,
+                        Math.min(offset + 7, count - 1),
+                    );
+                    for (let index = 0; index < (result?.color?.length || 0); index++) {
+                        const reportedIndex = Number(result.index);
+                        const zone = (Number.isFinite(reportedIndex) ? reportedIndex : offset) + index;
+                        await this.createZone(light.id, zone);
+                        const color = result.color[index];
+                        for (const [key, value] of [
+                            ['hue', color.hue],
+                            ['sat', color.saturation],
+                            ['bright', color.brightness],
+                            ['temp', color.kelvin],
+                        ]) {
+                            await this.setStateAsync(`Bulb_${light.id}.zone_${zone}.${key}`, { val: value, ack: true });
+                        }
+                    }
+                }
+            } catch (error) {
+                this.log.debug(`Could not initialize zones for ${light.id}: ${error.message || error}`);
+            }
+        }
+    }
+
+    async handleLightOnline(light) {
+        await this.handleNewLight(light);
+        this.log.info(`LIFX light ${light.id} reconnected`);
+    }
+
+    async handleLightOffline(light) {
+        if (!(await this.getObjectAsync(`Bulb_${light.id}.online`))) {
+            await this.createBasic(light.id, `LIFX ${light.id}`, 1500, 9000);
+        }
+        await this.stopEffect(light.id, false);
+        await this.setStateAsync(`Bulb_${light.id}.effect`, { val: 'off', ack: true });
+        await this.setStateAsync(`Bulb_${light.id}.online`, { val: false, ack: true });
+        this.log.info(`LIFX light ${light.id} is offline`);
     }
 
     async ensureCloudStatusObjects() {
@@ -260,23 +231,24 @@ class Lifx extends utils.Adapter {
             await this.createBasic(light.id, `LIFX ${light.id}`, 1500, 9000);
         }
         await this.setStateAsync(`${id}.lastSeen`, { val: Date.now(), ack: true });
-        if (typeof light.getWifiInfo === 'function') {
-            light.getWifiInfo(async (err, wifi) => {
-                if (err || !wifi) {
-                    this.log.debug(`Failed getting Wi-Fi diagnostics for ${light.id}: ${err || 'no data'}`);
-                    return;
-                }
+        try {
+            const wifi = await this.requestLightData(light, 'getWifiInfo');
+            if (wifi) {
                 for (const [key, val] of [['wifiSignal', wifi.signal], ['wifiTx', wifi.tx], ['wifiRx', wifi.rx]]) {
                     if (Number.isFinite(Number(val))) await this.setStateAsync(`${id}.${key}`, { val: Number(val), ack: true });
                 }
-            });
+            }
+        } catch (error) {
+            this.log.debug(`Failed getting Wi-Fi diagnostics for ${light.id}: ${error.message || error}`);
         }
-        if (typeof light.getFirmwareVersion === 'function') {
-            light.getFirmwareVersion(async (err, version) => {
-                if (err || !version) return;
+        try {
+            const version = await this.requestLightData(light, 'getFirmwareVersion');
+            if (version) {
                 const value = typeof version === 'string' ? version : `${version.majorVersion}.${version.minorVersion}`;
                 await this.setStateAsync(`${id}.firmwareVersion`, { val: value, ack: true });
-            });
+            }
+        } catch (error) {
+            this.log.debug(`Failed getting firmware version for ${light.id}: ${error.message || error}`);
         }
     }
 
@@ -409,92 +381,90 @@ class Lifx extends utils.Adapter {
     }
 
     async pollLifxData() {
-        const lifx_interval = this.config.lifx_interval || 30;
-        await this.updateDevices();
-        this.log.debug('polling! lifx is alive');
-        lifxTimeout = setTimeout(() => {
-            this.pollLifxData();
-        }, lifx_interval * 1000);
-    }
-    async updateDevices() {
-        client.lights('on').forEach(async light => {
-            if (!(await this.getObjectAsync(`Bulb_${light.id}.label`))) {
-                await this.createBasic(light.id, `LIFX ${light.id}`, 1500, 9000);
+        try {
+            await this.updateDevices();
+            this.log.debug('LIFX polling completed');
+        } catch (error) {
+            this.log.warn('LIFX polling failed: ' + (error?.message || error));
+        } finally {
+            if (!this.stopping) {
+                const configuredInterval = Number(this.config.lifx_interval);
+                const interval = Number.isFinite(configuredInterval)
+                    ? Math.min(3600, Math.max(5, configuredInterval))
+                    : 30;
+                lifxTimeout = setTimeout(() => this.pollLifxData(), interval * 1000);
             }
-            light.getState(async (err, info) => {
-                if (err) {
-                    this.log.debug(`Failed cyclic update for ${light.id}`);
-                } else {
-                    await this.setStateAsync(`Bulb_${light.id}.label`, {
-                        val: info.label,
-                        ack: true,
-                    });
-                    await this.setStateAsync(`Bulb_${light.id}.online`, { val: true, ack: true });
-                    await this.setStateAsync(`Bulb_${light.id}.lastSeen`, { val: Date.now(), ack: true });
-                    const convertPower = info.power == 1 ? true : false;
-                    await this.setStateAsync(`Bulb_${light.id}.state`, {
-                        val: convertPower,
-                        ack: true,
-                    });
-                    await this.setStateAsync(`Bulb_${light.id}.hue`, {
-                        val: info.color.hue,
-                        ack: true,
-                    });
-                    await this.setStateAsync(`Bulb_${light.id}.sat`, {
-                        val: info.color.saturation,
-                        ack: true,
-                    });
-                    await this.setStateAsync(`Bulb_${light.id}.bright`, {
-                        val: info.color.brightness,
-                        ack: true,
-                    });
-                    await this.setStateAsync(`Bulb_${light.id}.temp`, {
-                        val: info.color.kelvin,
-                        ack: true,
-                    });
-                }
-            });
-            light.getHardwareVersion(async (err, info) => {
-                if (err) {
-                    this.log.debug(`Failed cyclic HW Ver. update for ${light.id} : ${err}`);
-                } else if (info.productFeatures.multizone === true) {
-                    light.getColorZones(0, 255, async (err, mz) => {
-                        if (err) {
-                            this.log.debug(`Failed cyclic Color Zones update for ${light.id} : ${err}`);
-                        } else {
-                            const mquery = mz.count / 8; //je Antwort sind 8 Zonen übermittelt mz.count enthält die Anzahl der Zonen
-                            for (let i = 0; i < mquery; i++) {
-                                light.getColorZones(i * 8, 7 + i * 8, async (err, multiz) => {
-                                    if (err) {
-                                        this.log.debug(`Failed cyclic Color Zones >8 update for ${light.id} : ${err}`);
-                                    } else {
-                                        this.log.silly(`Multizzone: ${JSON.stringify(multiz)}`);
-                                        for (let j = 0; j < 8; j++) {
-                                            await this.setStateAsync(
-                                                `Bulb_${light.id}.zone_${parseInt(j + multiz.index)}.hue`,
-                                                { val: multiz.color[j].hue, ack: true },
-                                            );
-                                            await this.setStateAsync(
-                                                `Bulb_${light.id}.zone_${parseInt(j + multiz.index)}.sat`,
-                                                { val: multiz.color[j].saturation, ack: true },
-                                            );
-                                            await this.setStateAsync(
-                                                `Bulb_${light.id}.zone_${parseInt(j + multiz.index)}.bright`,
-                                                { val: multiz.color[j].brightness, ack: true },
-                                            );
-                                            await this.setStateAsync(
-                                                `Bulb_${light.id}.zone_${parseInt(j + multiz.index)}.temp`,
-                                                { val: multiz.color[j].kelvin, ack: true },
-                                            );
-                                        }
-                                    }
-                                });
-                            }
+        }
+    }
+
+    async updateDevices() {
+        const lights = client.lights('on') || [];
+        await Promise.allSettled(lights.map(light => this.updateOneDevice(light)));
+    }
+
+    async updateOneDevice(light) {
+        const path = 'Bulb_' + light.id;
+        try {
+            if (!(await this.getObjectAsync(path + '.label'))) {
+                await this.createBasic(light.id, 'LIFX ' + light.id, 1500, 9000);
+            }
+            const state = await this.requestLightData(light, 'getState');
+            if (!state) throw new Error('No state received from light');
+            const color = state.color || {};
+            for (const [stateId, value] of [
+                ['label', state.label || 'LIFX ' + light.id],
+                ['online', true],
+                ['lastSeen', Date.now()],
+                ['state', state.power === 1],
+                ['hue', color.hue ?? 0],
+                ['sat', color.saturation ?? 0],
+                ['bright', color.brightness ?? 0],
+                ['temp', color.kelvin ?? 3500],
+            ]) {
+                await this.setStateAsync(path + '.' + stateId, { val: value, ack: true });
+            }
+        } catch (error) {
+            this.log.debug('Failed updating ' + light.id + '; treating it as offline: ' + (error.message || error));
+            try {
+                await this.stopEffect(light.id, false);
+                await this.setStateAsync(path + '.online', { val: false, ack: true });
+                await this.setStateAsync(path + '.effect', { val: 'off', ack: true });
+            } catch (stateError) {
+                this.log.warn('Could not mark ' + light.id + ' offline: ' + (stateError.message || stateError));
+            }
+            return;
+        }
+
+        try {
+            const info = await this.requestLightData(light, 'getHardwareVersion');
+            if (info?.productFeatures?.multizone === true) {
+                const zoneInfo = await this.requestLightData(light, 'getColorZones', 0, 255);
+                const count = Math.max(0, Number(zoneInfo?.count) || 0);
+                for (let offset = 0; offset < count; offset += 8) {
+                    const result = await this.requestLightData(
+                        light,
+                        'getColorZones',
+                        offset,
+                        Math.min(offset + 7, count - 1),
+                    );
+                    for (let index = 0; index < (result?.color?.length || 0); index++) {
+                        const zone = Number(result.index) + index;
+                        await this.createZone(light.id, zone);
+                        const color = result.color[index];
+                        for (const [key, value] of [
+                            ['hue', color.hue],
+                            ['sat', color.saturation],
+                            ['bright', color.brightness],
+                            ['temp', color.kelvin],
+                        ]) {
+                            await this.setStateAsync(path + '.zone_' + zone + '.' + key, { val: value, ack: true });
                         }
-                    });
+                    }
                 }
-            });
-        });
+            }
+        } catch (error) {
+            this.log.debug('Could not refresh hardware or zone data for ' + light.id + ': ' + (error.message || error));
+        }
     }
     async createBasic(id, label, minK, maxK) {
         await this.setObjectNotExistsAsync(`Bulb_${id}`, {
@@ -944,6 +914,7 @@ class Lifx extends utils.Adapter {
      */
     async onUnload(callback) {
         try {
+            this.stopping = true;
             // Here you must clear all timeouts or intervals that may still be active
             // clearTimeout(timeout1);
             // clearTimeout(timeout2);
