@@ -5,7 +5,7 @@
   "author": {
     "name": "SvenM74"
   },
-  "homepage": "https://github.com/SvenM74/ioBroker.LIFX-Smart-Lighting",
+  "homepage": "https://github.com/svenm74/iobroker.lifx-smart-lighting",
   "license": "MIT",
   "keywords": [
     "ioBroker",
@@ -14,7 +14,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/SvenM74/ioBroker.LIFX-Smart-Lighting.git"
+    "url": "https://github.com/svenm74/iobroker.lifx-smart-lighting.git"
   },
   "engines": {
     "node": ">= 22"
@@ -37,7 +37,7 @@
     "typescript": "~6.0.3"
   },
   "bugs": {
-    "url": "https://github.com/SvenM74/ioBroker.LIFX-Smart-Lighting/issues"
+    "url": "https://github.com/svenm74/iobroker.lifx-smart-lighting/issues"
   },
   "main": "main.js",
   "readmeFilename": "README.md",
