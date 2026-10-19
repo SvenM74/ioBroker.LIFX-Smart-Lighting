@@ -12,10 +12,14 @@ An ioBroker adapter for discovering and controlling LIFX lamps on the local netw
 - Reports last-seen time, Wi-Fi signal and packet counters, and firmware version
 - Tracks device timeouts, marks unreachable lights offline, and refreshes their state after reconnection
 - Optionally synchronizes LIFX groups, locations, and scenes through the LIFX Cloud API
-- Provides writable group/location power controls and scene activation buttons
+- Provides writable group/location power, brightness, color and temperature controls
+- Synchronizes and activates LIFX Cloud scenes; also supports adapter-owned local scenes that can be saved, recaptured, activated and deleted
+- Runs configurable weekday/time schedules against LIFX Cloud selectors
 - Provides per-light `effect` controls for Breathe, Pulse, Color Loop, and Off
 - Provides configurable mood palettes for individual lights, groups and locations
 - Provides a separate `zoneEffect` control for the device-side Move effect on multizone lights
+- Provides a per-zone on/off control that restores the zone's previous brightness
+- Provides Cloud effects (Clouds, Sunrise, Sunset, Morph, Flame, Move and Clean) for compatible devices
 - Provides device-side Morph, Flame and Sky effects on compatible matrix lamps
 - Provides writable infrared brightness controls on devices with infrared capability
 - Provides a `rename` command to change a lamp's label on the device
@@ -35,10 +39,15 @@ The adapter configuration is available in the ioBroker Admin UI.
 - Wi-Fi and firmware diagnostics are enabled by default and run every five minutes.
 - LIFX Cloud support is optional and disabled by default. Enable it and enter a LIFX Cloud API token to synchronize groups, locations, and scenes. Cloud data is synchronized every five minutes by default.
 - Group and location power states control all matching lights through the LIFX Cloud API. Scene states expose an activation button.
+- Group/location channels also expose writable `brightness` (0–100), `color` (`#RRGGBB`) and `kelvin` states. Their controls use stable Cloud group/location IDs.
+- Cloud scenes are read-only except for activation because the public LIFX API only documents listing and activating scenes. Adapter-owned scenes under `Scenes.Local` can be created by writing a name to `newName`, updated with `capture`, activated, and deleted. Local scene snapshots include discovered lamps' power and color state.
+- Schedules are configured in the Admin “Schedules and routines” tab. They execute in the selected IANA timezone while the adapter is running, once per matching date, and use Cloud selectors (`all`, `id:...`, `group_id:...`, `location_id:...`). A Cloud token is required.
 - Each light has a writable `effect` state. Breathe and Pulse run on the light for the configured number of cycles. Color Loop is managed by the adapter and runs until `effect` is set to `off`; stopping an effect restores the color saved when it started.
 - Effect color, cycle period/count, pulse duty cycle, and Color Loop speed can be set in the Admin UI. Color Loop is only available for color-capable lights.
 - Moods are configured in the Admin UI with named presets and comma-separated `#RRGGBB` colors. A bulb picks a stable palette color; multizone strips blend the palette across their zones. Mood commands on synchronized groups and locations apply to locally discovered member lights.
 - Multizone lights get a writable `zoneEffect` state for the firmware Move effect. Its cycle duration and direction are configurable in the Admin UI. The effect is sent to and runs on the light itself.
+- Each multizone color zone has a writable `zonePower` state; turning a zone off sets its brightness to zero and turning it back on restores the brightness last observed or stored by this adapter.
+- With Cloud enabled, each discovered lamp exposes `cloudEffect` for Clouds, Sunrise, Sunset, Morph, Flame, Move, Clean and Off. LIFX Cloud applies these effects only on compatible devices and firmware.
 - Infrared-capable lights get a writable `infraredBrightness` state from 0 to 100 percent. The adapter reads and writes the device's maximum infrared brightness.
 - Each light has a writable `rename` command. It writes the new name to the LIFX device and updates the reported `label` state. LIFX labels are limited to 32 UTF-8 bytes.
 - Matrix-capable Tile, Candle and Ceiling devices get a writable `tileEffect` state with `off`, `morph`, `flame` and `sky`. Morph uses three configurable hue values. Flame uses the device's firmware palette. Sky is restricted to Ceiling devices running firmware 4.4 or newer. Its cycle speed and Sky variant are configurable in Admin.

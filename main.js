@@ -10,6 +10,7 @@ const crypto = require('node:crypto');
 const LifxClient = require('lifx-lan-client').Client;
 const tileEffects = require('./lib/tile-effects');
 const moods = require('./lib/moods');
+const routines = require('./lib/routines');
 const client = new LifxClient();
 let lifxTimeout;
 let diagnosticsTimeout;
@@ -30,6 +31,8 @@ class Lifx extends utils.Adapter {
             name: 'lifx-smart-lighting',
         });
         this.stopping = false;
+        this.lastRoutineRuns = new Map();
+        this.zoneBrightness = new Map();
         this.on('ready', this.onReady.bind(this));
         this.on('stateChange', this.onStateChange.bind(this));
         // this.on('objectChange', this.onObjectChange.bind(this));
@@ -69,9 +72,11 @@ class Lifx extends utils.Adapter {
         lifxTimeout = setTimeout(() => this.pollLifxData(), 5000);
 
         await this.ensureCloudStatusObjects();
+        await this.ensureLocalSceneObjects();
         this.scheduleDiagnostics(10000);
         if (this.config.cloudEnabled && this.config.cloudToken) {
             this.scheduleCloudSync(10000);
+            this.scheduleRoutines(15000);
         } else {
             await this.setStateAsync('info.cloudConnected', { val: false, ack: true });
         }
@@ -189,6 +194,7 @@ class Lifx extends utils.Adapter {
         if (this.config.moodsEnabled !== false && (features.color === true || features.multizone === true)) {
             await this.createMood(light.id);
         }
+        if (this.config.cloudEnabled && this.config.cloudToken) await this.createCloudEffect(light.id);
 
         if (features.multizone === true) {
             await this.createZoneEffect(light.id);
@@ -215,6 +221,10 @@ class Lifx extends utils.Adapter {
                         ]) {
                             await this.setStateAsync(`Bulb_${light.id}.zone_${zone}.${key}`, { val: value, ack: true });
                         }
+                        this.zoneBrightness.set(`${light.id}:${zone}`, Number(color.brightness) || 0);
+                        await this.setStateAsync(`Bulb_${light.id}.zone_${zone}.zonePower`, {
+                            val: Number(color.brightness) > 0, ack: true,
+                        });
                     }
                 }
             } catch (error) {
@@ -302,6 +312,24 @@ class Lifx extends utils.Adapter {
         if (state == null || state.val == null) {
             await this.setStateAsync(`Bulb_${id}.tileEffect`, { val: 'off', ack: true });
         }
+    }
+
+    async createCloudEffect(id) {
+        const values = {
+            off: 'Aus', clouds: 'Wolken', sunrise: 'Sonnenaufgang', sunset: 'Sonnenuntergang',
+            morph: 'Morph', flame: 'Flamme', move: 'Move', clean: 'Reinigung',
+        };
+        await this.setObjectNotExistsAsync(`Bulb_${id}.cloudEffect`, {
+            type: 'state',
+            common: {
+                name: 'LIFX Cloud-Effekt', type: 'string', role: 'text', read: true, write: true,
+                states: values,
+                desc: 'Firmwareeffekt über die offizielle LIFX Cloud API; benötigt Cloud-Token und kompatible Lampe',
+            },
+            native: {},
+        });
+        const state = await this.getStateAsync(`Bulb_${id}.cloudEffect`);
+        if (!state || state.val == null) await this.setStateAsync(`Bulb_${id}.cloudEffect`, { val: 'off', ack: true });
     }
 
     async createMood(id) {
@@ -627,8 +655,9 @@ class Lifx extends utils.Adapter {
             signal: AbortSignal.timeout(15000),
         });
         if (!response.ok) throw new Error(`LIFX Cloud returned HTTP ${response.status}`);
-        if (response.status === 204) return null;
-        return response.json();
+        if (response.status === 204 || response.status === 202) return null;
+        const text = await response.text();
+        return text ? JSON.parse(text) : null;
     }
 
     async syncCloudData() {
@@ -676,6 +705,9 @@ class Lifx extends utils.Adapter {
                 ['name', 'Name', 'string', 'info.name', false],
                 ['members', 'Lampen', 'string', 'json', false],
                 ['power', 'Ein/Aus', 'boolean', 'switch', true],
+                ['brightness', 'Helligkeit (%)', 'number', 'level.dimmer', true],
+                ['color', 'Farbe (#RRGGBB)', 'string', 'text', true],
+                ['kelvin', 'Farbtemperatur (Kelvin)', 'number', 'level.color.temp', true],
             ];
             if (this.config.moodsEnabled !== false) collectionStates.push(['mood', 'Stimmung', 'string', 'text', true]);
             const moodStates = { none: 'Keine Stimmung' };
@@ -684,6 +716,8 @@ class Lifx extends utils.Adapter {
                 await this.setObjectNotExistsAsync(`${path}.${stateId}`, {
                     type: 'state', common: {
                         name, type, role, read: true, write,
+                        ...(stateId === 'brightness' ? { min: 0, max: 100, unit: '%' } : {}),
+                        ...(stateId === 'kelvin' ? { min: 1500, max: 9000, unit: 'K' } : {}),
                         ...(stateId === 'mood' ? {
                             states: moodStates,
                             desc: 'Wendet die Stimmungs-Farbpalette auf alle lokal erreichbaren Lampen dieser Gruppe oder dieses Standorts an',
@@ -701,10 +735,14 @@ class Lifx extends utils.Adapter {
             await this.setStateAsync(`${path}.name`, { val: collection.name || id, ack: true });
             await this.setStateAsync(`${path}.members`, { val: JSON.stringify(collection.members), ack: true });
             await this.setStateAsync(`${path}.power`, { val: collection.power === 'on', ack: true });
+            const brightnessValues = lights.filter(light => light[collectionKey]?.id === id)
+                .map(light => Number(light.brightness)).filter(Number.isFinite);
+            if (brightnessValues.length) await this.setStateAsync(`${path}.brightness`, { val: Math.round(Math.max(...brightnessValues) * 100), ack: true });
         }
     }
 
     async syncCloudScenes(scenes) {
+        await this.ensureLocalSceneObjects();
         for (const scene of scenes) {
             if (!scene.uuid) continue;
             const safeId = encodeURIComponent(scene.uuid).replace(/%/g, '_');
@@ -721,8 +759,193 @@ class Lifx extends utils.Adapter {
         }
     }
 
+    async ensureLocalSceneObjects() {
+        await this.setObjectNotExistsAsync('Scenes', {
+            type: 'channel', common: { name: 'Szenen', role: 'channel' }, native: {},
+        });
+        await this.setObjectNotExistsAsync('Scenes.Local', {
+            type: 'channel', common: { name: 'Lokale Szenen', role: 'channel' }, native: {},
+        });
+        await this.setObjectNotExistsAsync('Scenes.Local.newName', {
+            type: 'state',
+            common: { name: 'Neue Szene speichern / vorhandene Szene überschreiben', type: 'string', role: 'text', read: false, write: true },
+            native: {},
+        });
+    }
+
+    async captureLocalScene(name) {
+        const cleanName = String(name || '').trim();
+        if (!cleanName) throw new Error('Szenenname darf nicht leer sein');
+        const sceneId = cleanName.normalize('NFKD').replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+        if (!sceneId) throw new Error('Szenenname enthält keine gültigen Zeichen');
+        await this.ensureLocalSceneObjects();
+        const snapshot = [];
+        for (const light of client.lights() || []) {
+            const read = async key => (await this.getStateAsync(`Bulb_${light.id}.${key}`))?.val;
+            const current = {
+                id: String(light.id),
+                power: Boolean(await read('state')),
+                brightness: Number(await read('bright')) || 0,
+                hue: Number(await read('hue')) || 0,
+                saturation: Number(await read('sat')) || 0,
+                kelvin: Number(await read('temp')) || 3500,
+            };
+            snapshot.push(current);
+        }
+        const path = `Scenes.Local.${sceneId}`;
+        await this.setObjectNotExistsAsync(path, {
+            type: 'channel', common: { name: cleanName, role: 'channel' }, native: { localScene: true, snapshot },
+        });
+        await this.extendObjectAsync(path, { common: { name: cleanName }, native: { localScene: true, snapshot } });
+        for (const [id, name] of [['activate', 'Szene aktivieren'], ['capture', 'Aktuellen Zustand speichern'], ['delete', 'Szene löschen']]) {
+            await this.setObjectNotExistsAsync(`${path}.${id}`, {
+                type: 'state', common: { name, type: 'boolean', role: 'button', read: false, write: true }, native: {},
+            });
+        }
+        await this.setStateAsync('Scenes.Local.newName', { val: '', ack: true });
+        this.log.info(`Saved local LIFX scene '${cleanName}' with ${snapshot.length} lights`);
+        return sceneId;
+    }
+
+    async activateLocalScene(path) {
+        const object = await this.getObjectAsync(path);
+        const snapshot = object?.native?.snapshot;
+        if (!object?.native?.localScene || !Array.isArray(snapshot)) throw new Error('Lokale Szene nicht gefunden');
+        const configuredDuration = Number(this.config.moodTransitionDuration);
+        const duration = Math.max(0, Number.isFinite(configuredDuration) ? configuredDuration : 1500);
+        for (const saved of snapshot) {
+            const light = client.light(saved.id);
+            if (!light) continue;
+            await new Promise((resolve, reject) => {
+                const callback = error => error ? reject(error) : resolve();
+                if (saved.power && typeof light.on === 'function') light.on(duration, callback);
+                else if (!saved.power && typeof light.off === 'function') light.off(duration, callback);
+                else resolve();
+            });
+            if (saved.power && typeof light.color === 'function') {
+                await new Promise((resolve, reject) => light.color(
+                    saved.hue, saved.saturation, saved.brightness, saved.kelvin, duration,
+                    error => error ? reject(error) : resolve(),
+                ));
+            }
+        }
+        await this.setStateAsync(`${path}.activate`, { val: false, ack: true });
+    }
+
+    async executeLocalSceneCommand(relativeId, state) {
+        if (relativeId === 'Scenes.Local.newName') {
+            await this.captureLocalScene(state.val);
+            return true;
+        }
+        const match = relativeId.match(/^Scenes\.Local\.([^.]+)\.(activate|capture|delete)$/);
+        if (!match) return false;
+        const scenePath = `Scenes.Local.${match[1]}`;
+        if (!state.val) return true;
+        if (match[2] === 'activate') {
+            await this.activateLocalScene(scenePath);
+        } else if (match[2] === 'capture') {
+            const scene = await this.getObjectAsync(scenePath);
+            if (!scene?.native?.localScene) throw new Error('Lokale Szene nicht gefunden');
+            const name = scene.common?.name || match[1];
+            await this.captureLocalScene(name);
+        } else {
+            await this.delObjectAsync(scenePath, { recursive: true });
+        }
+        const commandId = `${scenePath}.${match[2]}`;
+        if (match[2] !== 'delete') await this.setStateAsync(commandId, { val: false, ack: true });
+        return true;
+    }
+
+    scheduleRoutines(delay = 0) {
+        if (this.stopping || this.config.schedulesEnabled === false || !this.config.cloudEnabled || !this.config.cloudToken) return;
+        if (this.routineTimeout) clearTimeout(this.routineTimeout);
+        this.routineTimeout = setTimeout(async () => {
+            try {
+                const zone = String(this.config.scheduleTimezone || 'Europe/Berlin');
+                const clock = routines.localClock(new Date(), zone);
+                await this.setObjectNotExistsAsync('info.scheduleRuns', {
+                    type: 'state',
+                    common: { name: 'Letzte lokale Zeitplanausführungen', type: 'string', role: 'json', read: true, write: false },
+                    native: {},
+                });
+                const runState = await this.getStateAsync('info.scheduleRuns');
+                let persistentRuns = {};
+                try { persistentRuns = JSON.parse(runState?.val || '{}'); } catch { persistentRuns = {}; }
+                for (const row of Array.isArray(this.config.schedules) ? this.config.schedules : []) {
+                    const routine = routines.parseRoutine(row);
+                    if (!routine || !routines.shouldRun(routine, clock)) continue;
+                    const executionKey = `${routine.id}:${clock.date}`;
+                    if (this.lastRoutineRuns.get(routine.id) === clock.date || persistentRuns[routine.id] === clock.date) continue;
+                    try {
+                        const body = { ...routine.state, duration: Number(this.config.collectionTransition) || 1 };
+                        await this.cloudRequest(`/lights/${encodeURIComponent(routine.selector)}/state`, 'PUT', body);
+                        this.lastRoutineRuns.set(routine.id, clock.date);
+                        persistentRuns[routine.id] = clock.date;
+                        await this.setStateAsync('info.scheduleRuns', { val: JSON.stringify(persistentRuns), ack: true });
+                        this.log.info(`Executed LIFX schedule '${routine.id}' at ${clock.time} (${zone})`);
+                    } catch (error) {
+                        this.log.warn(`LIFX schedule '${routine.id}' failed: ${error.message || error}`);
+                    }
+                }
+            } catch (error) {
+                this.log.warn(`Could not evaluate LIFX schedules: ${error.message || error}`);
+            }
+            this.scheduleRoutines(15000);
+        }, delay);
+    }
+
+    async executeCloudEffect(lightId, effect) {
+        if (!this.config.cloudEnabled || !this.config.cloudToken) throw new Error('LIFX Cloud ist nicht aktiviert');
+        const selector = `id:${lightId}`;
+        const endpoints = {
+            off: [`/lights/${encodeURIComponent(selector)}/effects/off`, {}],
+            clouds: [`/lights/${encodeURIComponent(selector)}/effects/clouds`, { power_on: true }],
+            sunrise: [`/lights/${encodeURIComponent(selector)}/effects/sunrise`, { power_on: true }],
+            sunset: [`/lights/${encodeURIComponent(selector)}/effects/sunset`, { power_on: true }],
+            morph: [`/lights/${encodeURIComponent(selector)}/effects/morph`, { power_on: true }],
+            flame: [`/lights/${encodeURIComponent(selector)}/effects/flame`, { power_on: true }],
+            move: [`/lights/${encodeURIComponent(selector)}/effects/move`, { power_on: true }],
+            clean: [`/lights/${encodeURIComponent(selector)}/clean`, {}],
+        };
+        if (!Object.hasOwn(endpoints, effect)) throw new Error(`Unbekannter Cloud-Effekt '${effect}'`);
+        const [path, body] = endpoints[effect];
+        await this.cloudRequest(path, 'POST', body);
+        await this.setStateAsync(`Bulb_${lightId}.cloudEffect`, { val: effect, ack: true });
+    }
+
+    async executeZonePower(lightId, zone, enabled) {
+        const path = `Bulb_${lightId}.zone_${zone}`;
+        const light = client.light(lightId);
+        if (!light || typeof light.colorZones !== 'function') throw new Error('LIFX-Zone ist nicht erreichbar');
+        const read = async key => (await this.getStateAsync(`${path}.${key}`))?.val;
+        const hue = Number(await read('hue')) || 0;
+        const saturation = Number(await read('sat')) || 0;
+        const kelvin = Number(await read('temp')) || 3500;
+        const cacheKey = `${lightId}:${zone}`;
+        let brightness;
+        if (enabled) {
+            brightness = this.zoneBrightness.get(cacheKey) || 100;
+        } else {
+            const current = Number(await read('bright')) || 0;
+            if (current > 0) this.zoneBrightness.set(cacheKey, current);
+            brightness = 0;
+        }
+        await new Promise((resolve, reject) => light.colorZones(
+            zone, zone, hue, saturation, brightness, kelvin, 500, true,
+            error => error ? reject(error) : resolve(),
+        ));
+        await this.setStateAsync(`${path}.bright`, { val: brightness, ack: true });
+        await this.setStateAsync(`${path}.zonePower`, { val: Boolean(enabled), ack: true });
+    }
+
     async executeCloudCommand(relativeId, state) {
         const parts = relativeId.split('.');
+        if (relativeId.startsWith('Scenes.Local.')) return this.executeLocalSceneCommand(relativeId, state);
+        if (parts[0].startsWith('Bulb_') && parts.at(-1) === 'cloudEffect') {
+            const lightId = parts[0].slice('Bulb_'.length);
+            await this.executeCloudEffect(lightId, String(state.val));
+            return true;
+        }
         if ((parts[0] === 'Groups' || parts[0] === 'Locations') && parts.at(-1) === 'mood') {
             try {
                 if (state.val && state.val !== 'none') await this.executeCollectionMood(relativeId, String(state.val));
@@ -747,6 +970,32 @@ class Lifx extends utils.Adapter {
             const selectorKey = parts[0] === 'Groups' ? 'group_id' : 'location_id';
             const selector = `${selectorKey}:${lifxId}`;
             await this.cloudRequest(`/lights/${encodeURIComponent(selector)}/state`, 'PUT', { power: state.val ? 'on' : 'off' });
+            await this.setStateAsync(relativeId, { val: Boolean(state.val), ack: true });
+            return true;
+        }
+        if ((parts[0] === 'Groups' || parts[0] === 'Locations') && ['brightness', 'color', 'kelvin'].includes(parts.at(-1))) {
+            const channelId = parts.slice(0, -1).join('.');
+            const object = await this.getObjectAsync(channelId);
+            const lifxId = object?.native?.lifxId;
+            if (!lifxId) return false;
+            const selectorKey = parts[0] === 'Groups' ? 'group_id' : 'location_id';
+            const selector = `${selectorKey}:${lifxId}`;
+            let body;
+            if (parts.at(-1) === 'brightness') {
+                const value = Number(state.val);
+                if (!Number.isFinite(value) || value < 0 || value > 100) throw new Error('Helligkeit muss zwischen 0 und 100 liegen');
+                body = { brightness: value / 100 };
+            } else if (parts.at(-1) === 'kelvin') {
+                const value = Number(state.val);
+                if (!Number.isFinite(value) || value < 1500 || value > 9000) throw new Error('Farbtemperatur muss zwischen 1500 und 9000 Kelvin liegen');
+                body = { color: `kelvin:${Math.round(value)}` };
+            } else {
+                if (typeof state.val !== 'string' || !/^#[0-9a-f]{6}$/i.test(state.val)) throw new Error('Farbe muss das Format #RRGGBB haben');
+                body = { color: state.val };
+            }
+            body.duration = Number(this.config.collectionTransition) || 1;
+            await this.cloudRequest(`/lights/${encodeURIComponent(selector)}/state`, 'PUT', body);
+            await this.setStateAsync(relativeId, { val: state.val, ack: true });
             return true;
         }
         return false;
@@ -848,6 +1097,8 @@ class Lifx extends utils.Adapter {
                         ]) {
                             await this.setStateAsync(path + '.zone_' + zone + '.' + key, { val: value, ack: true });
                         }
+                        this.zoneBrightness.set(`${light.id}:${zone}`, Number(color.brightness) || 0);
+                        await this.setStateAsync(path + `.zone_${zone}.zonePower`, { val: Number(color.brightness) > 0, ack: true });
                     }
                 }
             }
@@ -1269,6 +1520,14 @@ class Lifx extends utils.Adapter {
             common: { name: `Zone ${zone}`, role: 'channel' },
             native: {},
         });
+        await this.setObjectNotExistsAsync(`Bulb_${id}.zone_${zone}.zonePower`, {
+            type: 'state',
+            common: {
+                name: 'Zone ein/aus', type: 'boolean', role: 'switch', read: true, write: true,
+                desc: 'Schaltet nur diese Zone aus und stellt beim Einschalten ihre vorherige Helligkeit wieder her',
+            },
+            native: {},
+        });
         await this.setObjectNotExistsAsync(`Bulb_${id}.zone_${zone}.hue`, {
             type: 'state',
             common: {
@@ -1347,6 +1606,8 @@ class Lifx extends utils.Adapter {
             }
             if (diagnosticsTimeout) clearTimeout(diagnosticsTimeout);
             if (cloudTimeout) clearTimeout(cloudTimeout);
+            if (this.routineTimeout) clearTimeout(this.routineTimeout);
+            if (this.routineTimeout) clearTimeout(this.routineTimeout);
             for (const id of moveEffects.keys()) {
                 const light = client.light(id);
                 if (light && typeof light.setMultiZoneEffect === 'function') {
@@ -1412,6 +1673,15 @@ class Lifx extends utils.Adapter {
             this.log.debug(`state ${id} changed: ${state.val} (ack = ${state.ack})`);
             if (state && !state.ack) {
                 const relativeId = id.startsWith(`${this.namespace}.`) ? id.slice(this.namespace.length + 1) : id;
+                if (relativeId.startsWith('Bulb_') && /\.zone_\d+\.zonePower$/.test(relativeId)) {
+                    const match = relativeId.match(/^Bulb_(.+)\.zone_(\d+)\.zonePower$/);
+                    try {
+                        await this.executeZonePower(match[1], Number(match[2]), Boolean(state.val));
+                    } catch (error) {
+                        this.log.warn(`Zone power command for ${relativeId} failed: ${error.message || error}`);
+                    }
+                    return;
+                }
                 if (relativeId.startsWith('Bulb_') && relativeId.endsWith('.zoneEffect')) {
                     const lightId = relativeId.slice('Bulb_'.length, -'.zoneEffect'.length);
                     try {
@@ -1482,7 +1752,8 @@ class Lifx extends utils.Adapter {
                     }
                     return;
                 }
-                if (['Groups.', 'Locations.', 'Scenes.'].some(prefix => relativeId.startsWith(prefix))) {
+                if ((relativeId.startsWith('Bulb_') && relativeId.endsWith('.cloudEffect')) ||
+                    ['Groups.', 'Locations.', 'Scenes.'].some(prefix => relativeId.startsWith(prefix))) {
                     try {
                         await this.executeCloudCommand(relativeId, state);
                     } catch (error) {

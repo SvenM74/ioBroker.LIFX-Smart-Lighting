@@ -7,7 +7,7 @@ const adapterConfig = require('../io-package.json').native;
 
 test('Admin settings are grouped into documented tabs', () => {
     assert.equal(adminConfig.type, 'tabs');
-    assert.deepEqual(Object.keys(adminConfig.items), ['devices', 'cloud', 'effects', 'moods', 'multizone', 'matrix']);
+    assert.deepEqual(Object.keys(adminConfig.items), ['devices', 'cloud', 'effects', 'moods', 'routines', 'multizone', 'matrix']);
     for (const [tabId, tab] of Object.entries(adminConfig.items)) {
         const help = Object.values(tab.items).find(item => item.type === 'staticText');
         assert.ok(help, `${tabId} tab needs a function description`);

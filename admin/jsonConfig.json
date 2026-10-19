@@ -77,6 +77,13 @@
           "type": "checkbox",
           "label": { "en": "Synchronize scenes and create activation controls", "de": "Szenen synchronisieren und Aktivierungsschalter anlegen" },
           "default": true
+        },
+        "collectionTransition": {
+          "type": "number",
+          "label": { "en": "Group transition (seconds)", "de": "Übergangsdauer für Gruppen (Sekunden)" },
+          "min": 0,
+          "max": 60,
+          "default": 1
         }
       }
     },
@@ -87,8 +94,8 @@
         "_effectsHelp": {
           "type": "staticText",
           "text": {
-            "en": "The per-lamp effect state supports off, breathe, pulse and colorLoop. Breathe and Pulse run on the lamp for the configured cycle count; Color Loop is adapter-managed and runs until turned off. The hue, saturation, brightness and Kelvin settings define the effect color. These settings apply to all compatible lamps.",
-            "de": "Der Datenpunkt effect jeder Lampe unterstützt off, breathe, pulse und colorLoop. Atmen und Pulsieren laufen für die eingestellte Zyklenzahl direkt auf der Lampe. Color Loop wird vom Adapter ausgeführt und läuft bis zum Ausschalten. Farbton, Sättigung, Helligkeit und Kelvin bestimmen die Effektfarbe. Diese Einstellungen gelten für alle kompatiblen Lampen."
+            "en": "The local per-lamp effect state supports off, breathe, pulse and colorLoop. With Cloud enabled, cloudEffect also exposes LIFX firmware effects (clouds, sunrise, sunset, morph, flame, move and clean). Cloud effects require a token and compatible products/firmware.",
+            "de": "Der lokale Datenpunkt effect unterstützt off, breathe, pulse und colorLoop. Mit aktivierter Cloud stehen zusätzlich über cloudEffect die LIFX-Firmwareeffekte clouds, sunrise, sunset, morph, flame, move und clean zur Verfügung. Sie benötigen einen Cloud-Token und kompatible Geräte/Firmware."
           }
         },
         "effectPeriod": {
@@ -180,6 +187,44 @@
             { "type": "text", "attr": "id", "title": { "en": "ID", "de": "ID" }, "width": "20%" },
             { "type": "text", "attr": "name", "title": { "en": "Name", "de": "Name" }, "width": "25%" },
             { "type": "text", "attr": "colors", "title": { "en": "Colors (#RRGGBB, comma-separated)", "de": "Farben (#RRGGBB, kommagetrennt)" }, "width": "55%" }
+          ]
+        }
+      }
+    },
+    "routines": {
+      "type": "panel",
+      "label": { "en": "Schedules and routines", "de": "Zeitpläne und Routinen" },
+      "items": {
+        "_routinesHelp": {
+          "type": "staticText",
+          "text": {
+            "en": "Adapter-managed schedules run while this adapter is running. Each row sets power and/or brightness, color or Kelvin on a LIFX Cloud selector at the configured local time and weekdays. Use all, group_id:ID, location_id:ID or id:ID. Cloud access and a valid token are required.",
+            "de": "Adapter-Zeitpläne laufen, solange dieser Adapter aktiv ist. Jede Tabellenzeile setzt zur angegebenen lokalen Uhrzeit an den ausgewählten Wochentagen Ein/Aus und/oder Helligkeit, Farbe oder Kelvin. Als Auswahl sind all, group_id:ID, location_id:ID oder id:ID möglich. Cloud-Zugriff und ein gültiger Token sind erforderlich."
+          }
+        },
+        "schedulesEnabled": {
+          "type": "checkbox",
+          "label": { "en": "Enable schedules", "de": "Zeitpläne aktivieren" },
+          "default": true
+        },
+        "scheduleTimezone": {
+          "type": "text",
+          "label": { "en": "IANA time zone", "de": "IANA-Zeitzone" },
+          "default": "Europe/Berlin"
+        },
+        "schedules": {
+          "type": "table",
+          "label": { "en": "Schedules", "de": "Zeitpläne" },
+          "uniqueColumns": ["id"],
+          "items": [
+            { "type": "text", "attr": "id", "title": { "en": "ID", "de": "ID" }, "width": "12%" },
+            { "type": "text", "attr": "time", "title": { "en": "Time HH:mm", "de": "Uhrzeit HH:mm" }, "width": "12%" },
+            { "type": "text", "attr": "days", "title": { "en": "Weekdays 1-7 or *", "de": "Wochentage 1–7 oder *" }, "width": "15%" },
+            { "type": "text", "attr": "selector", "title": { "en": "Selector", "de": "Auswahl" }, "width": "21%" },
+            { "type": "text", "attr": "power", "title": { "en": "Power on/off/blank", "de": "Ein/Aus/leer" }, "width": "12%" },
+            { "type": "number", "attr": "brightness", "title": { "en": "Brightness 0-100", "de": "Helligkeit 0–100" }, "width": "12%" },
+            { "type": "text", "attr": "color", "title": { "en": "Color (optional)", "de": "Farbe (optional)" }, "width": "12%" },
+            { "type": "number", "attr": "kelvin", "title": { "en": "Kelvin (optional)", "de": "Kelvin (optional)" }, "width": "12%" }
           ]
         }
       }

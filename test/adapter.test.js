@@ -42,6 +42,10 @@ class FakeAdapter extends EventEmitter {
     async getStateAsync(id) {
         return this.states.get(id) || null;
     }
+    async delObjectAsync(id) {
+        for (const key of this.objects.keys()) if (key === id || key.startsWith(`${id}.`)) this.objects.delete(key);
+        for (const key of this.states.keys()) if (key === id || key.startsWith(`${id}.`)) this.states.delete(key);
+    }
     subscribeStates() {}
 }
 
@@ -175,5 +179,68 @@ test('matrix effect command sends a Tile packet and acknowledges the selected ef
     } finally {
         server.close();
         lights.delete(id);
+    }
+});
+
+test('group brightness control uses a stable Cloud group selector', async () => {
+    const adapter = startAdapter();
+    let request;
+    adapter.config.collectionTransition = 2;
+    adapter.cloudRequest = async (...args) => { request = args; };
+    adapter.objects.set('Groups.grp', { native: { lifxId: 'group-123' } });
+    assert.equal(await adapter.executeCloudCommand('Groups.grp.brightness', { val: 40 }), true);
+    assert.deepEqual(request, ['/lights/group_id%3Agroup-123/state', 'PUT', { brightness: 0.4, duration: 2 }]);
+});
+
+test('local scene can be captured, activated and removed', async () => {
+    const calls = [];
+    lights.set('sceneBulb', {
+        id: 'sceneBulb',
+        on(duration, callback) { calls.push(['on', duration]); callback(null); },
+        off(duration, callback) { calls.push(['off', duration]); callback(null); },
+        color(h, s, b, k, duration, callback) { calls.push(['color', h, s, b, k, duration]); callback(null); },
+    });
+    const adapter = startAdapter();
+    adapter.states.set('Bulb_sceneBulb.state', { val: true, ack: true });
+    adapter.states.set('Bulb_sceneBulb.bright', { val: 75, ack: true });
+    adapter.states.set('Bulb_sceneBulb.hue', { val: 45, ack: true });
+    adapter.states.set('Bulb_sceneBulb.sat', { val: 80, ack: true });
+    adapter.states.set('Bulb_sceneBulb.temp', { val: 3200, ack: true });
+    try {
+        await adapter.executeCloudCommand('Scenes.Local.newName', { val: 'Abendlicht' });
+        const scene = adapter.objects.get('Scenes.Local.Abendlicht');
+        assert.ok(scene.native.snapshot.some(light => light.id === 'sceneBulb'));
+        await adapter.executeCloudCommand('Scenes.Local.Abendlicht.activate', { val: true });
+        assert.deepEqual(calls[0], ['on', 1500]);
+        assert.deepEqual(calls[1], ['color', 45, 80, 75, 3200, 1500]);
+        await adapter.executeCloudCommand('Scenes.Local.Abendlicht.delete', { val: true });
+        assert.equal(adapter.objects.has('Scenes.Local.Abendlicht'), false);
+    } finally {
+        lights.delete('sceneBulb');
+    }
+});
+
+test('zone power writes only the selected color zone and restores its saved brightness', async () => {
+    const calls = [];
+    lights.set('zonebulb', {
+        colorZones(start, end, hue, sat, brightness, kelvin, duration, apply, callback) {
+            calls.push({ start, end, hue, sat, brightness, kelvin, duration, apply });
+            callback(null);
+        },
+    });
+    const adapter = startAdapter();
+    adapter.states.set('Bulb_zonebulb.zone_2.hue', { val: 120, ack: true });
+    adapter.states.set('Bulb_zonebulb.zone_2.sat', { val: 100, ack: true });
+    adapter.states.set('Bulb_zonebulb.zone_2.bright', { val: 62, ack: true });
+    adapter.states.set('Bulb_zonebulb.zone_2.temp', { val: 3500, ack: true });
+    try {
+        await adapter.executeZonePower('zonebulb', 2, false);
+        await adapter.executeZonePower('zonebulb', 2, true);
+        assert.equal(calls[0].brightness, 0);
+        assert.equal(calls[1].brightness, 62);
+        assert.equal(calls[0].start, 2);
+        assert.equal(adapter.states.get('Bulb_zonebulb.zone_2.zonePower').val, true);
+    } finally {
+        lights.delete('zonebulb');
     }
 });
