@@ -96,7 +96,15 @@
     "cloudPollInterval": 300,
     "syncGroups": true,
     "syncLocations": true,
-    "syncScenes": true
+    "syncScenes": true,
+    "effectPeriod": 1000,
+    "effectCycles": 10,
+    "effectHue": 180,
+    "effectSaturation": 100,
+    "effectBrightness": 100,
+    "effectKelvin": 3500,
+    "effectPulseDuty": 0.5,
+    "effectColorLoopInterval": 3000
   },
   "objects": [],
   "instanceObjects": []

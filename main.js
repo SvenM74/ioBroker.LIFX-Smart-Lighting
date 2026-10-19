@@ -11,6 +11,7 @@ const client = new LifxClient();
 let lifxTimeout;
 let diagnosticsTimeout;
 let cloudTimeout;
+const effectRuns = new Map();
 
 class Lifx extends utils.Adapter {
     /**
@@ -707,6 +708,18 @@ class Lifx extends utils.Adapter {
             },
             native: {},
         });
+        await this.setObjectNotExistsAsync(`Bulb_${id}.effect`, {
+            type: 'state',
+            common: {
+                name: 'Lichteffekt',
+                type: 'string',
+                role: 'level',
+                read: true,
+                write: true,
+                states: { off: 'Aus', breathe: 'Atmen', pulse: 'Pulsieren', colorLoop: 'Farbwechsel' },
+            },
+            native: {},
+        });
         await this.extendObjectAsync(`Bulb_${id}`, { common: { name: `LifxBulb ${label}` } });
         await this.extendObjectAsync(`Bulb_${id}.temp`, { common: { min: minK, max: maxK } });
         await this.extendObjectAsync(`Bulb_${id}.online`, { common: { write: false } });
@@ -718,6 +731,10 @@ class Lifx extends utils.Adapter {
         const online = await this.getStateAsync(`Bulb_${id}.online`);
         if (online == null || online.val == null) {
             await this.setStateAsync(`Bulb_${id}.online`, { val: false, ack: true });
+        }
+        const effect = await this.getStateAsync(`Bulb_${id}.effect`);
+        if (effect == null || effect.val == null) {
+            await this.setStateAsync(`Bulb_${id}.effect`, { val: 'off', ack: true });
         }
     }
     async createColor(id) {
@@ -734,6 +751,125 @@ class Lifx extends utils.Adapter {
             native: {},
         });
         await this.extendObjectAsync(`Bulb_${id}.colormode`, { common: { write: false } });
+    }
+
+    async getEffectColor(id) {
+        const getNumber = async (stateId, fallback) => {
+            const state = await this.getStateAsync(`Bulb_${id}.${stateId}`);
+            const value = Number(state?.val);
+            return Number.isFinite(value) ? value : fallback;
+        };
+        return {
+            hue: await getNumber('hue', 0),
+            saturation: await getNumber('sat', 0),
+            brightness: await getNumber('bright', 100),
+            kelvin: await getNumber('temp', 3500),
+        };
+    }
+
+    setLightColor(light, color, duration, id) {
+        light.color(color.hue, color.saturation, color.brightness, color.kelvin, duration, error => {
+            if (error) this.log.debug(`Setting effect color for ${id} failed: ${error.message || error}`);
+        });
+    }
+
+    async stopEffect(id, restore = true) {
+        const run = effectRuns.get(id);
+        if (run) {
+            if (run.interval) clearInterval(run.interval);
+            if (run.timeout) clearTimeout(run.timeout);
+            effectRuns.delete(id);
+            if (restore && run.originalColor) {
+                const light = client.light(id);
+                if (light) this.setLightColor(light, run.originalColor, 300, id);
+            }
+        }
+    }
+
+    async executeLocalEffect(id, effect) {
+        const light = client.light(id);
+        if (!light) {
+            this.log.warn(`Cannot start effect for ${id}: light is not available`);
+            await this.setStateAsync(`Bulb_${id}.effect`, { val: 'off', ack: true });
+            return;
+        }
+
+        if (effect === 'colorLoop') {
+            const supportsColor = await this.getStateAsync(`Bulb_${id}.colorLamp`);
+            if (supportsColor?.val !== true) {
+                this.log.warn(`Color Loop is only available for color-capable LIFX devices (${id})`);
+                await this.setStateAsync(`Bulb_${id}.effect`, { val: 'off', ack: true });
+                return;
+            }
+        }
+
+        await this.stopEffect(id, true);
+        const originalColor = await this.getEffectColor(id);
+        if (effect === 'off') {
+            this.setLightColor(light, originalColor, 300, id);
+            await this.setStateAsync(`Bulb_${id}.effect`, { val: 'off', ack: true });
+            return;
+        }
+
+        const period = Math.min(10000, Math.max(100, Number(this.config.effectPeriod) || 1000));
+        const cycles = Math.min(100, Math.max(1, Number(this.config.effectCycles) || 10));
+        const hue = Math.min(360, Math.max(0, Number(this.config.effectHue) || 0));
+        const readSetting = (key, fallback, min, max) => {
+            const raw = this.config[key];
+            if (raw === undefined || raw === null || raw === '') return fallback;
+            const value = Number(raw);
+            return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+        };
+        const saturation = readSetting('effectSaturation', 100, 0, 100);
+        const brightness = readSetting('effectBrightness', 100, 1, 100);
+        const kelvin = readSetting('effectKelvin', 3500, 2500, 9000);
+        const target = { hue, saturation, brightness, kelvin };
+        const run = { originalColor, interval: null, timeout: null };
+        effectRuns.set(id, run);
+
+        if (effect === 'breathe' || effect === 'pulse') {
+            const waveform = effect === 'breathe' ? 1 : 4;
+            const skewRatio = readSetting('effectPulseDuty', 0.5, 0, 1);
+            light.waveform(
+                target.hue,
+                target.saturation,
+                target.brightness,
+                target.kelvin,
+                true,
+                period,
+                cycles,
+                skewRatio,
+                waveform,
+                error => {
+                    if (error) this.log.warn(`Starting ${effect} effect for ${id} failed: ${error.message || error}`);
+                },
+            );
+        } else if (effect === 'colorLoop') {
+            const stepMs = readSetting('effectColorLoopInterval', 3000, 250, 60000);
+            let currentHue = 0;
+            const changeHue = () => {
+                const currentRun = effectRuns.get(id);
+                if (currentRun !== run) return;
+                this.setLightColor(light, { ...target, hue: currentHue }, Math.min(stepMs, 1000), id);
+                currentHue = (currentHue + 30) % 360;
+            };
+            changeHue();
+            run.interval = setInterval(changeHue, stepMs);
+        } else {
+            effectRuns.delete(id);
+            await this.setStateAsync(`Bulb_${id}.effect`, { val: 'off', ack: true });
+            this.log.warn(`Unsupported effect '${effect}' requested for ${id}`);
+            return;
+        }
+
+        if (effect === 'breathe' || effect === 'pulse') {
+            run.timeout = setTimeout(async () => {
+                if (effectRuns.get(id) !== run) return;
+                effectRuns.delete(id);
+                await this.setStateAsync(`Bulb_${id}.effect`, { val: 'off', ack: true });
+            }, period * cycles + 500);
+        }
+        await this.setStateAsync(`Bulb_${id}.effect`, { val: effect, ack: true });
     }
     async createZone(id, zone) {
         await this.setObjectNotExistsAsync(`Bulb_${id}.zone_${zone}`, {
@@ -818,6 +954,13 @@ class Lifx extends utils.Adapter {
             }
             if (diagnosticsTimeout) clearTimeout(diagnosticsTimeout);
             if (cloudTimeout) clearTimeout(cloudTimeout);
+            for (const [id, run] of effectRuns.entries()) {
+                if (run.interval) clearInterval(run.interval);
+                if (run.timeout) clearTimeout(run.timeout);
+                const light = client.light(id);
+                if (light && run.originalColor) this.setLightColor(light, run.originalColor, 300, id);
+            }
+            effectRuns.clear();
             callback();
         } catch (e) {
             this.log.error(e);
@@ -854,6 +997,16 @@ class Lifx extends utils.Adapter {
             this.log.debug(`state ${id} changed: ${state.val} (ack = ${state.ack})`);
             if (state && !state.ack) {
                 const relativeId = id.startsWith(`${this.namespace}.`) ? id.slice(this.namespace.length + 1) : id;
+                if (relativeId.startsWith('Bulb_') && relativeId.endsWith('.effect')) {
+                    const lightId = relativeId.slice('Bulb_'.length, -'.effect'.length);
+                    try {
+                        await this.executeLocalEffect(lightId, String(state.val));
+                    } catch (error) {
+                        this.log.warn(`Effect command for ${lightId} failed: ${error.message || error}`);
+                        await this.setStateAsync(relativeId, { val: 'off', ack: true });
+                    }
+                    return;
+                }
                 if (['Groups.', 'Locations.', 'Scenes.'].some(prefix => relativeId.startsWith(prefix))) {
                     try {
                         await this.executeCloudCommand(relativeId, state);

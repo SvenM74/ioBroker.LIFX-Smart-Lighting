@@ -80,6 +80,86 @@
         "de": "Szenen synchronisieren und Aktivierungsschalter anlegen"
       },
       "default": true
+    },
+    "effectPeriod": {
+      "type": "number",
+      "label": {
+        "en": "Breathe and pulse period (milliseconds)",
+        "de": "Dauer eines Atem- oder Pulszyklus (Millisekunden)"
+      },
+      "min": 100,
+      "max": 10000,
+      "default": 1000
+    },
+    "effectCycles": {
+      "type": "number",
+      "label": {
+        "en": "Breathe and pulse cycles",
+        "de": "Anzahl der Atem- oder Pulszyklen"
+      },
+      "min": 1,
+      "max": 100,
+      "default": 10
+    },
+    "effectHue": {
+      "type": "number",
+      "label": {
+        "en": "Effect color hue (0–360°)",
+        "de": "Farbton für Effekte (0–360°)"
+      },
+      "min": 0,
+      "max": 360,
+      "default": 180
+    },
+    "effectSaturation": {
+      "type": "number",
+      "label": {
+        "en": "Effect color saturation (%)",
+        "de": "Farbsättigung für Effekte (%)"
+      },
+      "min": 0,
+      "max": 100,
+      "default": 100
+    },
+    "effectBrightness": {
+      "type": "number",
+      "label": {
+        "en": "Effect brightness (%)",
+        "de": "Helligkeit für Effekte (%)"
+      },
+      "min": 1,
+      "max": 100,
+      "default": 100
+    },
+    "effectKelvin": {
+      "type": "number",
+      "label": {
+        "en": "Effect color temperature (Kelvin)",
+        "de": "Farbtemperatur für Effekte (Kelvin)"
+      },
+      "min": 2500,
+      "max": 9000,
+      "default": 3500
+    },
+    "effectPulseDuty": {
+      "type": "number",
+      "label": {
+        "en": "Pulse color duty cycle (0–1)",
+        "de": "Puls-Farbanteil (0–1)"
+      },
+      "min": 0,
+      "max": 1,
+      "default": 0.5
+    },
+    "effectColorLoopInterval": {
+      "type": "number",
+      "label": {
+        "en": "Color Loop step interval (milliseconds)",
+        "de": "Farbwechselintervall (Millisekunden)"
+      },
+      "min": 250,
+      "max": 60000,
+      "default": 3000
     }
   }
 }
