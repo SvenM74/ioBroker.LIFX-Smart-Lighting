@@ -56,6 +56,8 @@ test('adapter creates an explicit rename command while keeping reported label re
     assert.equal(adapter.objects.get('Bulb_testbulb.label').common.write, false);
     assert.equal(adapter.objects.get('Bulb_testbulb.rename').common.write, true);
     assert.equal(adapter.objects.get('Bulb_testbulb.rename').common.type, 'string');
+    assert.deepEqual(adapter.states.get('Bulb_testbulb.label'), { val: 'Test bulb', ack: true });
+    assert.deepEqual(adapter.states.get('Bulb_testbulb.rename'), { val: 'Test bulb', ack: true });
 });
 
 test('infrared command uses maxIR and acknowledges the applied percentage', async () => {

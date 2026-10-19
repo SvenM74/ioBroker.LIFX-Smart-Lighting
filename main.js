@@ -860,6 +860,12 @@ class Lifx extends utils.Adapter {
         if (effect == null || effect.val == null) {
             await this.setStateAsync(`Bulb_${id}.effect`, { val: 'off', ack: true });
         }
+        for (const stateId of ['label', 'rename']) {
+            const current = await this.getStateAsync(`Bulb_${id}.${stateId}`);
+            if (current == null || current.val == null) {
+                await this.setStateAsync(`Bulb_${id}.${stateId}`, { val: label, ack: true });
+            }
+        }
     }
     async createColor(id) {
         await this.setObjectNotExistsAsync(`Bulb_${id}.colormode`, {
