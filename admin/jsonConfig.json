@@ -1,183 +1,229 @@
 {
-  "type": "panel",
+  "type": "tabs",
   "i18n": true,
   "items": {
-    "lifx_interval": {
-      "type": "number",
-      "label": {
-        "en": "Local device polling interval (seconds)",
-        "de": "Abfrageintervall lokaler Geräte (Sekunden)"
-      },
-      "min": 5,
-      "max": 3600,
-      "default": 30
+    "devices": {
+      "type": "panel",
+      "label": { "en": "Devices", "de": "Geräte" },
+      "items": {
+        "_devicesHelp": {
+          "type": "staticText",
+          "text": {
+            "en": "Local device polling refreshes lamp power, color, brightness and temperature. The diagnostics interval controls Wi-Fi signal, packet counters and firmware queries. Each lamp also exposes a read-only label and a writable rename command. Infrared-capable lamps expose infraredBrightness from 0 to 100 percent.",
+            "de": "Die lokale Geräteabfrage aktualisiert Schaltzustand, Farbe, Helligkeit und Farbtemperatur. Das Diagnoseintervall steuert Abfragen von WLAN-Signal, Paket-Zählern und Firmware. Jede Lampe besitzt einen schreibgeschützten label-Datenpunkt und den schreibbaren Befehl rename. Lampen mit Infrarotfunktion erhalten infraredBrightness von 0 bis 100 Prozent."
+          }
+        },
+        "lifx_interval": {
+          "type": "number",
+          "label": { "en": "Local device polling interval (seconds)", "de": "Abfrageintervall lokaler Geräte (Sekunden)" },
+          "min": 5,
+          "max": 3600,
+          "default": 30
+        },
+        "diagnosticsEnabled": {
+          "type": "checkbox",
+          "label": { "en": "Collect Wi-Fi and firmware diagnostics", "de": "WLAN- und Firmware-Diagnosewerte erfassen" },
+          "default": true
+        },
+        "diagnosticsInterval": {
+          "type": "number",
+          "label": { "en": "Diagnostics interval (seconds)", "de": "Diagnoseintervall (Sekunden)" },
+          "min": 30,
+          "max": 86400,
+          "default": 300
+        }
+      }
     },
-    "diagnosticsEnabled": {
-      "type": "checkbox",
-      "label": {
-        "en": "Collect Wi-Fi and firmware diagnostics",
-        "de": "WLAN- und Firmware-Diagnosewerte erfassen"
-      },
-      "default": true
+    "cloud": {
+      "type": "panel",
+      "label": { "en": "Groups, locations and scenes", "de": "Gruppen, Standorte und Szenen" },
+      "items": {
+        "_cloudHelp": {
+          "type": "staticText",
+          "text": {
+            "en": "Cloud synchronization is optional and requires a LIFX Cloud API token. Groups and locations create read-only name/member information and writable power controls. Scenes create an activate button. This integration uses the LIFX Cloud API; local lamp control continues to work without it.",
+            "de": "Die Cloud-Synchronisierung ist optional und benötigt einen LIFX-Cloud-API-Token. Gruppen und Standorte erhalten lesbare Namens- und Mitgliederinformationen sowie einen schreibbaren power-Datenpunkt. Szenen erhalten einen activate-Taster. Die Funktion verwendet die LIFX Cloud API; die lokale Lampensteuerung funktioniert auch ohne Cloud."
+          }
+        },
+        "cloudEnabled": {
+          "type": "checkbox",
+          "label": { "en": "Enable optional LIFX Cloud integration", "de": "Optionale LIFX-Cloud-Integration aktivieren" },
+          "default": false
+        },
+        "cloudToken": {
+          "type": "password",
+          "encrypted": true,
+          "label": { "en": "LIFX Cloud API token", "de": "LIFX-Cloud-API-Token" },
+          "default": ""
+        },
+        "cloudPollInterval": {
+          "type": "number",
+          "label": { "en": "Cloud synchronization interval (seconds)", "de": "Cloud-Synchronisierungsintervall (Sekunden)" },
+          "min": 60,
+          "max": 86400,
+          "default": 300
+        },
+        "syncGroups": {
+          "type": "checkbox",
+          "label": { "en": "Synchronize groups", "de": "Gruppen synchronisieren" },
+          "default": true
+        },
+        "syncLocations": {
+          "type": "checkbox",
+          "label": { "en": "Synchronize locations", "de": "Standorte synchronisieren" },
+          "default": true
+        },
+        "syncScenes": {
+          "type": "checkbox",
+          "label": { "en": "Synchronize scenes and create activation controls", "de": "Szenen synchronisieren und Aktivierungsschalter anlegen" },
+          "default": true
+        }
+      }
     },
-    "diagnosticsInterval": {
-      "type": "number",
-      "label": {
-        "en": "Diagnostics interval (seconds)",
-        "de": "Diagnoseintervall (Sekunden)"
-      },
-      "min": 30,
-      "max": 86400,
-      "default": 300
+    "effects": {
+      "type": "panel",
+      "label": { "en": "Light effects", "de": "Lichteffekte" },
+      "items": {
+        "_effectsHelp": {
+          "type": "staticText",
+          "text": {
+            "en": "The per-lamp effect state supports off, breathe, pulse and colorLoop. Breathe and Pulse run on the lamp for the configured cycle count; Color Loop is adapter-managed and runs until turned off. The hue, saturation, brightness and Kelvin settings define the effect color. These settings apply to all compatible lamps.",
+            "de": "Der Datenpunkt effect jeder Lampe unterstützt off, breathe, pulse und colorLoop. Atmen und Pulsieren laufen für die eingestellte Zyklenzahl direkt auf der Lampe. Color Loop wird vom Adapter ausgeführt und läuft bis zum Ausschalten. Farbton, Sättigung, Helligkeit und Kelvin bestimmen die Effektfarbe. Diese Einstellungen gelten für alle kompatiblen Lampen."
+          }
+        },
+        "effectPeriod": {
+          "type": "number",
+          "label": { "en": "Breathe and pulse period (milliseconds)", "de": "Dauer eines Atem- oder Pulszyklus (Millisekunden)" },
+          "min": 100,
+          "max": 10000,
+          "default": 1000
+        },
+        "effectCycles": {
+          "type": "number",
+          "label": { "en": "Breathe and pulse cycles", "de": "Anzahl der Atem- oder Pulszyklen" },
+          "min": 1,
+          "max": 100,
+          "default": 10
+        },
+        "effectHue": {
+          "type": "number",
+          "label": { "en": "Effect color hue (0–360°)", "de": "Farbton für Effekte (0–360°)" },
+          "min": 0,
+          "max": 360,
+          "default": 180
+        },
+        "effectSaturation": {
+          "type": "number",
+          "label": { "en": "Effect color saturation (%)", "de": "Farbsättigung für Effekte (%)" },
+          "min": 0,
+          "max": 100,
+          "default": 100
+        },
+        "effectBrightness": {
+          "type": "number",
+          "label": { "en": "Effect brightness (%)", "de": "Helligkeit für Effekte (%)" },
+          "min": 1,
+          "max": 100,
+          "default": 100
+        },
+        "effectKelvin": {
+          "type": "number",
+          "label": { "en": "Effect color temperature (Kelvin)", "de": "Farbtemperatur für Effekte (Kelvin)" },
+          "min": 2500,
+          "max": 9000,
+          "default": 3500
+        },
+        "effectPulseDuty": {
+          "type": "number",
+          "label": { "en": "Pulse color duty cycle (0–1)", "de": "Puls-Farbanteil (0–1)" },
+          "min": 0,
+          "max": 1,
+          "default": 0.5
+        },
+        "effectColorLoopInterval": {
+          "type": "number",
+          "label": { "en": "Color Loop step interval (milliseconds)", "de": "Farbwechselintervall (Millisekunden)" },
+          "min": 250,
+          "max": 60000,
+          "default": 3000
+        }
+      }
     },
-    "cloudEnabled": {
-      "type": "checkbox",
-      "label": {
-        "en": "Enable optional LIFX Cloud integration",
-        "de": "Optionale LIFX-Cloud-Integration aktivieren"
-      },
-      "default": false
+    "multizone": {
+      "type": "panel",
+      "label": { "en": "Lightstrips", "de": "Lightstrips" },
+      "items": {
+        "_multizoneHelp": {
+          "type": "staticText",
+          "text": {
+            "en": "The writable per-device zoneEffect state starts or stops the LIFX Move firmware effect on compatible linear-zone strips. The cycle controls its speed, and the direction checkbox selects motion away from zone 0. This is separate from the adapter-managed whole-lamp effects.",
+            "de": "Der schreibbare Datenpunkt zoneEffect startet oder stoppt den LIFX-Firmwareeffekt Move auf kompatiblen Lightstrips mit linearen Zonen. Die Zyklusdauer legt die Geschwindigkeit fest. Die Richtungsoption bewegt den Effekt von Zone 0 weg. Diese Funktion ist getrennt von den adaptergesteuerten Lampeneffekten."
+          }
+        },
+        "multiZoneMoveSpeed": {
+          "type": "number",
+          "label": { "en": "Move cycle (milliseconds)", "de": "Move-Zyklusdauer (Millisekunden)" },
+          "min": 100,
+          "max": 60000,
+          "default": 1500
+        },
+        "multiZoneMoveAway": {
+          "type": "checkbox",
+          "label": { "en": "Move away from zone 0", "de": "Move von Zone 0 weg bewegen" },
+          "default": false
+        }
+      }
     },
-    "cloudToken": {
-      "type": "password",
-      "encrypted": true,
-      "label": {
-        "en": "LIFX Cloud API token",
-        "de": "LIFX-Cloud-API-Token"
-      },
-      "default": ""
-    },
-    "cloudPollInterval": {
-      "type": "number",
-      "label": {
-        "en": "Cloud synchronization interval (seconds)",
-        "de": "Cloud-Synchronisierungsintervall (Sekunden)"
-      },
-      "min": 60,
-      "max": 86400,
-      "default": 300
-    },
-    "syncGroups": {
-      "type": "checkbox",
-      "label": {
-        "en": "Synchronize groups",
-        "de": "Gruppen synchronisieren"
-      },
-      "default": true
-    },
-    "syncLocations": {
-      "type": "checkbox",
-      "label": {
-        "en": "Synchronize locations",
-        "de": "Standorte synchronisieren"
-      },
-      "default": true
-    },
-    "syncScenes": {
-      "type": "checkbox",
-      "label": {
-        "en": "Synchronize scenes and create activation controls",
-        "de": "Szenen synchronisieren und Aktivierungsschalter anlegen"
-      },
-      "default": true
-    },
-    "effectPeriod": {
-      "type": "number",
-      "label": {
-        "en": "Breathe and pulse period (milliseconds)",
-        "de": "Dauer eines Atem- oder Pulszyklus (Millisekunden)"
-      },
-      "min": 100,
-      "max": 10000,
-      "default": 1000
-    },
-    "effectCycles": {
-      "type": "number",
-      "label": {
-        "en": "Breathe and pulse cycles",
-        "de": "Anzahl der Atem- oder Pulszyklen"
-      },
-      "min": 1,
-      "max": 100,
-      "default": 10
-    },
-    "effectHue": {
-      "type": "number",
-      "label": {
-        "en": "Effect color hue (0–360°)",
-        "de": "Farbton für Effekte (0–360°)"
-      },
-      "min": 0,
-      "max": 360,
-      "default": 180
-    },
-    "effectSaturation": {
-      "type": "number",
-      "label": {
-        "en": "Effect color saturation (%)",
-        "de": "Farbsättigung für Effekte (%)"
-      },
-      "min": 0,
-      "max": 100,
-      "default": 100
-    },
-    "effectBrightness": {
-      "type": "number",
-      "label": {
-        "en": "Effect brightness (%)",
-        "de": "Helligkeit für Effekte (%)"
-      },
-      "min": 1,
-      "max": 100,
-      "default": 100
-    },
-    "effectKelvin": {
-      "type": "number",
-      "label": {
-        "en": "Effect color temperature (Kelvin)",
-        "de": "Farbtemperatur für Effekte (Kelvin)"
-      },
-      "min": 2500,
-      "max": 9000,
-      "default": 3500
-    },
-    "effectPulseDuty": {
-      "type": "number",
-      "label": {
-        "en": "Pulse color duty cycle (0–1)",
-        "de": "Puls-Farbanteil (0–1)"
-      },
-      "min": 0,
-      "max": 1,
-      "default": 0.5
-    },
-    "effectColorLoopInterval": {
-      "type": "number",
-      "label": {
-        "en": "Color Loop step interval (milliseconds)",
-        "de": "Farbwechselintervall (Millisekunden)"
-      },
-      "min": 250,
-      "max": 60000,
-      "default": 3000
-    },
-    "multiZoneMoveSpeed": {
-      "type": "number",
-      "label": {
-        "en": "Lightstrip Move cycle (milliseconds)",
-        "de": "Zyklusdauer für Move am Lightstrip (Millisekunden)"
-      },
-      "min": 100,
-      "max": 60000,
-      "default": 1500
-    },
-    "multiZoneMoveAway": {
-      "type": "checkbox",
-      "label": {
-        "en": "Move away from zone 0",
-        "de": "Move von Zone 0 weg bewegen"
-      },
-      "default": false
+    "matrix": {
+      "type": "panel",
+      "label": { "en": "Matrix effects", "de": "Matrixeffekte" },
+      "items": {
+        "_matrixHelp": {
+          "type": "staticText",
+          "text": {
+            "en": "Matrix-capable Tile, Candle and Ceiling devices expose the writable tileEffect state with off, morph, flame and sky. Morph uses the three configured hue values; Flame uses the device firmware palette. Sky is restricted to Ceiling devices with firmware 4.4 or newer. Effects are sent directly over the local LIFX LAN protocol and continue on the lamp until stopped. The state records the last command sent; this packet is not acknowledged by the current adapter.",
+            "de": "Matrixfähige Tile-, Candle- und Ceiling-Geräte erhalten den schreibbaren Datenpunkt tileEffect mit off, morph, flame und sky. Morph verwendet die drei unten eingestellten Farbtöne, Flame die Firmware-Palette des Geräts. Sky ist auf Ceiling-Geräte ab Firmware 4.4 begrenzt. Der Effekt wird direkt über das lokale LIFX-LAN-Protokoll gesendet und läuft auf der Lampe bis zum Stoppen. Der Datenpunkt zeigt den zuletzt gesendeten Befehl; eine Bestätigung der Lampe wertet der Adapter derzeit nicht aus."
+          }
+        },
+        "tileEffectSpeed": {
+          "type": "number",
+          "label": { "en": "Matrix effect cycle (milliseconds)", "de": "Zyklusdauer Matrixeffekt (Millisekunden)" },
+          "min": 100,
+          "max": 60000,
+          "default": 1500
+        },
+        "tileMorphHue1": {
+          "type": "number",
+          "label": { "en": "Morph palette hue 1 (degrees)", "de": "Morph-Farbton 1 (Grad)" },
+          "min": 0,
+          "max": 360,
+          "default": 190
+        },
+        "tileMorphHue2": {
+          "type": "number",
+          "label": { "en": "Morph palette hue 2 (degrees)", "de": "Morph-Farbton 2 (Grad)" },
+          "min": 0,
+          "max": 360,
+          "default": 285
+        },
+        "tileMorphHue3": {
+          "type": "number",
+          "label": { "en": "Morph palette hue 3 (degrees)", "de": "Morph-Farbton 3 (Grad)" },
+          "min": 0,
+          "max": 360,
+          "default": 25
+        },
+        "tileSkyType": {
+          "type": "select",
+          "label": { "en": "Ceiling Sky variant", "de": "Ceiling-Sky-Variante" },
+          "options": [
+            { "label": { "en": "Sunrise", "de": "Sonnenaufgang" }, "value": 0 },
+            { "label": { "en": "Sunset", "de": "Sonnenuntergang" }, "value": 1 },
+            { "label": { "en": "Clouds", "de": "Wolken" }, "value": 2 }
+          ],
+          "default": 0
+        }
+      }
     }
   }
 }

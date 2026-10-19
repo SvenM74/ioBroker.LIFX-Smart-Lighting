@@ -3,16 +3,21 @@
 // The adapter-core module gives you access to the core ioBroker functions
 // you need to create an adapter
 const utils = require('@iobroker/adapter-core');
+const crypto = require('node:crypto');
 
 // Load your modules here, e.g.:
 // const fs = require("node:fs");
 const LifxClient = require('lifx-lan-client').Client;
+const tileEffects = require('./lib/tile-effects');
 const client = new LifxClient();
 let lifxTimeout;
 let diagnosticsTimeout;
 let cloudTimeout;
 const effectRuns = new Map();
 const moveEffects = new Map();
+const runningTileEffects = new Map();
+const tileEffectInstances = new Map();
+const tileSequences = new Map();
 
 class Lifx extends utils.Adapter {
     /**
@@ -119,7 +124,13 @@ class Lifx extends utils.Adapter {
         const state = await this.requestLightData(light, 'getState');
         const features = info?.productFeatures || {};
         const range = features.temperature_range || [1500, 9000];
+        const productName = info?.productName || '';
+        const matrixCapable = features.matrix === true || features.matrixZones === true || /\b(tile|tiles|candle|ceiling)\b/i.test(productName);
         await this.createBasic(light.id, state?.label || `LIFX ${light.id}`, range[0], range[1]);
+        await this.setStateAsync(`Bulb_${light.id}.matrixLamp`, { val: matrixCapable, ack: true });
+        if (matrixCapable) {
+            await this.createTileEffect(light.id);
+        }
 
         for (const [stateId, value] of [
             ['vendor', info.vendorName || ''],
@@ -137,6 +148,17 @@ class Lifx extends utils.Adapter {
             ['lastSeen', Date.now()],
         ]) {
             await this.setStateAsync(`Bulb_${light.id}.${stateId}`, { val: value, ack: true });
+        }
+
+        if (matrixCapable) {
+            const savedTileEffect = await this.getStateAsync(`Bulb_${light.id}.tileEffect`);
+            if (savedTileEffect?.val && savedTileEffect.val !== 'off') {
+                try {
+                    await this.executeTileEffect(light.id, String(savedTileEffect.val));
+                } catch (error) {
+                    this.log.warn(`Could not restore matrix effect for ${light.id}: ${error.message || error}`);
+                }
+            }
         }
 
         if (features.infrared === true) {
@@ -212,6 +234,11 @@ class Lifx extends utils.Adapter {
             await this.createBasic(light.id, `LIFX ${light.id}`, 1500, 9000);
         }
         await this.stopEffect(light.id, false);
+        runningTileEffects.delete(light.id);
+        tileEffectInstances.delete(light.id);
+        if (await this.getObjectAsync(`Bulb_${light.id}.tileEffect`)) {
+            await this.setStateAsync(`Bulb_${light.id}.tileEffect`, { val: 'off', ack: true });
+        }
         await this.setStateAsync(`Bulb_${light.id}.effect`, { val: 'off', ack: true });
         await this.setStateAsync(`Bulb_${light.id}.online`, { val: false, ack: true });
         this.log.info(`LIFX light ${light.id} is offline`);
@@ -251,6 +278,98 @@ class Lifx extends utils.Adapter {
             },
             native: {},
         });
+    }
+
+    async createTileEffect(id) {
+        await this.setObjectNotExistsAsync(`Bulb_${id}.tileEffect`, {
+            type: 'state',
+            common: {
+                name: 'Matrix-Lichteffekt',
+                type: 'string',
+                role: 'text',
+                read: true,
+                write: true,
+                states: { off: 'Aus', morph: 'Morph', flame: 'Flamme', sky: 'Himmel' },
+                desc: 'Firmwareeffekt für Matrixgeräte wie Tile, Candle und Ceiling',
+            },
+            native: {},
+        });
+        const state = await this.getStateAsync(`Bulb_${id}.tileEffect`);
+        if (state == null || state.val == null) {
+            await this.setStateAsync(`Bulb_${id}.tileEffect`, { val: 'off', ack: true });
+        }
+    }
+
+    nextTileSequence(id) {
+        const next = ((tileSequences.get(id) || 0) + 1) & 0xff;
+        tileSequences.set(id, next);
+        return next;
+    }
+
+    async executeTileEffect(id, effect) {
+        if (!Object.hasOwn(tileEffects.EFFECT_TYPES, effect)) {
+            throw new Error(`Unsupported matrix effect '${effect}'`);
+        }
+        const light = client.light(id);
+        if (!light) throw new Error(`LIFX device ${id} is not available`);
+        const capability = await this.getStateAsync(`Bulb_${id}.matrixLamp`);
+        if (effect !== 'off' && capability?.val !== true) {
+            throw new Error(`LIFX device ${id} does not support Matrix Zones`);
+        }
+        const product = await this.getStateAsync(`Bulb_${id}.product`);
+        if (effect === 'sky') {
+            if (!/ceiling/i.test(String(product?.val || ''))) {
+                throw new Error('Der Sky-Effekt wird nur von LIFX Ceiling unterstützt');
+            }
+            const firmware = await this.requestLightData(light, 'getFirmwareVersion');
+            const isNewEnough = Number(firmware?.majorVersion) > 4 ||
+                (Number(firmware?.majorVersion) === 4 && Number(firmware?.minorVersion) >= 4);
+            if (!isNewEnough) throw new Error('Der Sky-Effekt benötigt LIFX Ceiling Firmware 4.4 oder neuer');
+        }
+
+        const configNumber = (key, fallback, min, max) => {
+            const value = Number(this.config[key]);
+            return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
+        };
+        const speed = configNumber('tileEffectSpeed', 1500, 100, 60000);
+        const morphPalette = [
+            configNumber('tileMorphHue1', 190, 0, 360),
+            configNumber('tileMorphHue2', 285, 0, 360),
+            configNumber('tileMorphHue3', 25, 0, 360),
+        ].map(hue => ({ hue, saturation: 100, brightness: 100, kelvin: 3500 }));
+        const skyPalette = [
+            { hue: 205, saturation: 70, brightness: 35, kelvin: 6500 },
+            { hue: 220, saturation: 80, brightness: 8, kelvin: 6500 },
+            { hue: 270, saturation: 75, brightness: 40, kelvin: 5000 },
+            { hue: 25, saturation: 90, brightness: 90, kelvin: 3000 },
+            { hue: 45, saturation: 80, brightness: 100, kelvin: 3500 },
+            { hue: 15, saturation: 90, brightness: 75, kelvin: 2700 },
+        ];
+        const skyTypeSetting = this.config.tileSkyType;
+        const skyType = Number.isInteger(Number(skyTypeSetting)) ? Number(skyTypeSetting) : 0;
+        const source = /^[0-9a-f]{8}$/i.test(client.source || '') ? client.source : '4c465831';
+        let instanceid = tileEffectInstances.get(id);
+        if (effect !== 'off' && (!instanceid || runningTileEffects.get(id) !== effect)) {
+            instanceid = crypto.randomBytes(4).readUInt32LE(0);
+        }
+        if (instanceid === undefined) instanceid = crypto.randomBytes(4).readUInt32LE(0);
+        await tileEffects.sendTileEffect(light, {
+            source,
+            sequence: this.nextTileSequence(id),
+            effect,
+            instanceid,
+            speed,
+            skyType,
+            palette: effect === 'morph' ? morphPalette : effect === 'sky' ? skyPalette : [],
+        });
+        if (effect === 'off') {
+            runningTileEffects.delete(id);
+            tileEffectInstances.delete(id);
+        } else {
+            runningTileEffects.set(id, effect);
+            tileEffectInstances.set(id, instanceid);
+        }
+        await this.setStateAsync(`Bulb_${id}.tileEffect`, { val: effect, ack: true });
     }
 
     async executeInfrared(id, brightness) {
@@ -558,6 +677,11 @@ class Lifx extends utils.Adapter {
             this.log.debug('Failed updating ' + light.id + '; treating it as offline: ' + (error.message || error));
             try {
                 await this.stopEffect(light.id, false);
+                runningTileEffects.delete(light.id);
+                tileEffectInstances.delete(light.id);
+                if (await this.getObjectAsync(path + '.tileEffect')) {
+                    await this.setStateAsync(path + '.tileEffect', { val: 'off', ack: true });
+                }
                 await this.setStateAsync(path + '.online', { val: false, ack: true });
                 await this.setStateAsync(path + '.effect', { val: 'off', ack: true });
             } catch (stateError) {
@@ -713,6 +837,17 @@ class Lifx extends utils.Adapter {
             },
             native: {},
         });
+        await this.setObjectNotExistsAsync(`Bulb_${id}.matrixLamp`, {
+            type: 'state',
+            common: {
+                name: 'Matrixzonen verfügbar',
+                type: 'boolean',
+                role: 'indicator',
+                read: true,
+                write: false,
+            },
+            native: {},
+        });
         await this.setObjectNotExistsAsync(`Bulb_${id}.state`, {
             type: 'state',
             common: {
@@ -865,6 +1000,10 @@ class Lifx extends utils.Adapter {
             if (current == null || current.val == null) {
                 await this.setStateAsync(`Bulb_${id}.${stateId}`, { val: label, ack: true });
             }
+        }
+        const matrixCapability = await this.getStateAsync(`Bulb_${id}.matrixLamp`);
+        if (matrixCapability == null || matrixCapability.val == null) {
+            await this.setStateAsync(`Bulb_${id}.matrixLamp`, { val: false, ack: true });
         }
     }
     async createColor(id) {
@@ -1094,6 +1233,19 @@ class Lifx extends utils.Adapter {
                 }
             }
             moveEffects.clear();
+            await Promise.allSettled([...runningTileEffects.keys()].map(id => {
+                const light = client.light(id);
+                if (!light) return Promise.resolve();
+                return tileEffects.sendTileEffect(light, {
+                    source: /^[0-9a-f]{8}$/i.test(client.source || '') ? client.source : '4c465831',
+                    sequence: this.nextTileSequence(id),
+                    effect: 'off',
+                    instanceid: tileEffectInstances.get(id),
+                    speed: 1500,
+                });
+            }));
+            runningTileEffects.clear();
+            tileEffectInstances.clear();
             for (const [id, run] of effectRuns.entries()) {
                 if (run.interval) clearInterval(run.interval);
                 if (run.timeout) clearTimeout(run.timeout);
@@ -1143,6 +1295,16 @@ class Lifx extends utils.Adapter {
                         await this.executeZoneEffect(lightId, String(state.val));
                     } catch (error) {
                         this.log.warn(`Zone effect command for ${lightId} failed: ${error.message || error}`);
+                        await this.setStateAsync(relativeId, { val: 'off', ack: true });
+                    }
+                    return;
+                }
+                if (relativeId.startsWith('Bulb_') && relativeId.endsWith('.tileEffect')) {
+                    const lightId = relativeId.slice('Bulb_'.length, -'.tileEffect'.length);
+                    try {
+                        await this.executeTileEffect(lightId, String(state.val));
+                    } catch (error) {
+                        this.log.warn(`Matrix effect command for ${lightId} failed: ${error.message || error}`);
                         await this.setStateAsync(relativeId, { val: 'off', ack: true });
                     }
                     return;

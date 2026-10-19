@@ -2,6 +2,7 @@
 
 const { EventEmitter } = require('node:events');
 const Module = require('node:module');
+const dgram = require('node:dgram');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -90,4 +91,27 @@ test('rename command calls the device and updates the label and channel name', a
     assert.deepEqual(adapter.states.get('Bulb_renameme.rename'), { val: 'Hallway', ack: true });
     assert.equal(adapter.objects.get('Bulb_renameme').common.name, 'LIFX Hallway');
     await assert.rejects(adapter.renameLight('renameme', 'ä'.repeat(17)), /32 UTF-8-Bytes/);
+});
+
+test('matrix effect command sends a Tile packet and acknowledges the selected effect', async () => {
+    const server = dgram.createSocket('udp4');
+    await new Promise(resolve => server.bind(0, '127.0.0.1', resolve));
+    const port = server.address().port;
+    const packetReceived = new Promise(resolve => server.once('message', resolve));
+    const id = 'd073d55246b9';
+    lights.set(id, { id, address: '127.0.0.1', port });
+    const adapter = startAdapter();
+    adapter.states.set(`Bulb_${id}.matrixLamp`, { val: true, ack: true });
+    adapter.states.set(`Bulb_${id}.product`, { val: 'LIFX Tile', ack: true });
+
+    try {
+        await adapter.executeTileEffect(id, 'morph');
+        const packet = await packetReceived;
+        assert.equal(packet.readUInt16LE(32), 719);
+        assert.equal(packet.readUInt8(42), 2);
+        assert.deepEqual(adapter.states.get(`Bulb_${id}.tileEffect`), { val: 'morph', ack: true });
+    } finally {
+        server.close();
+        lights.delete(id);
+    }
 });

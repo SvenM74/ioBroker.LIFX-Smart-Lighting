@@ -15,6 +15,7 @@ An ioBroker adapter for discovering and controlling LIFX lamps on the local netw
 - Provides writable group/location power controls and scene activation buttons
 - Provides per-light `effect` controls for Breathe, Pulse, Color Loop, and Off
 - Provides a separate `zoneEffect` control for the device-side Move effect on multizone lights
+- Provides device-side Morph, Flame and Sky effects on compatible matrix lamps
 - Provides writable infrared brightness controls on devices with infrared capability
 - Provides a `rename` command to change a lamp's label on the device
 - Runs unit tests and package-content checks in GitHub Actions
@@ -38,12 +39,18 @@ The adapter configuration is available in the ioBroker Admin UI.
 - Multizone lights get a writable `zoneEffect` state for the firmware Move effect. Its cycle duration and direction are configurable in the Admin UI. The effect is sent to and runs on the light itself.
 - Infrared-capable lights get a writable `infraredBrightness` state from 0 to 100 percent. The adapter reads and writes the device's maximum infrared brightness.
 - Each light has a writable `rename` command. It writes the new name to the LIFX device and updates the reported `label` state. LIFX labels are limited to 32 UTF-8 bytes.
-
-Matrix-device effects such as Flame, Morph, and Sky are not exposed yet. The current LAN client library does not implement the Tile Effect protocol messages needed to control them; the adapter avoids sending incomplete or unverified protocol packets.
+- Matrix-capable Tile, Candle and Ceiling devices get a writable `tileEffect` state with `off`, `morph`, `flame` and `sky`. Morph uses three configurable hue values. Flame uses the device's firmware palette. Sky is restricted to Ceiling devices running firmware 4.4 or newer. Its cycle speed and Sky variant are configurable in Admin.
+- Admin settings are separated into tabs for devices, Cloud groups/locations/scenes, standard light effects, lightstrips and matrix effects. Every tab includes a short explanation of its controls and related states.
 
 The Cloud API token is stored as a protected, encrypted native configuration value. Local discovery and control continue to work when Cloud integration is disabled. Cloud synchronization requires internet access and a valid token.
 
 Diagnostics are collected from devices on the local network. `wifiSignal` stores the raw value reported by each LIFX device; interpretation can vary by device and firmware. `wifiTx` and `wifiRx` are the device-reported packet counters.
+
+## Hardware validation
+
+The automated tests verify the LIFX Tile SetTileEffect packet layout and exercise the adapter commands with mocked devices. GitHub Actions also runs package-content checks. Before relying on matrix effects in a live installation, test `morph`, `flame` and `off` on a Tile/Candle device; test `sky` only on Ceiling firmware 4.4 or newer. Confirm local UDP traffic to the lamp's LIFX port (normally 56700) is permitted by the network.
+
+The `tileEffect` state records the last command sent. SetTileEffect is sent without requesting a device acknowledgement, so this state is not confirmation that the effect has started on the lamp.
 
 ## License
 

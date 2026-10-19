@@ -50,7 +50,7 @@
     "main.js"
   ],
   "scripts": {
-    "test:js": "node --check main.js && node --test test/adapter.test.js",
+    "test:js": "node --check main.js && node --test test/adapter.test.js test/tile-effects.test.js test/admin-config.test.js",
     "test:package": "node --test test/package-files.test.js",
     "test:unit": "node --test test/adapter.test.js",
     "test": "npm run test:js && npm run test:package",

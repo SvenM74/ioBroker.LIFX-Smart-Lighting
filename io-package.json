@@ -106,7 +106,12 @@
     "effectPulseDuty": 0.5,
     "effectColorLoopInterval": 3000,
     "multiZoneMoveSpeed": 1500,
-    "multiZoneMoveAway": false
+    "multiZoneMoveAway": false,
+    "tileEffectSpeed": 1500,
+    "tileMorphHue1": 190,
+    "tileMorphHue2": 285,
+    "tileMorphHue3": 25,
+    "tileSkyType": 0
   },
   "objects": [],
   "instanceObjects": []
