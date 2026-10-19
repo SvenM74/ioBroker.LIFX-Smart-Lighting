@@ -14,6 +14,7 @@ An ioBroker adapter for discovering and controlling LIFX lamps on the local netw
 - Optionally synchronizes LIFX groups, locations, and scenes through the LIFX Cloud API
 - Provides writable group/location power controls and scene activation buttons
 - Provides per-light `effect` controls for Breathe, Pulse, Color Loop, and Off
+- Provides configurable mood palettes for individual lights, groups and locations
 - Provides a separate `zoneEffect` control for the device-side Move effect on multizone lights
 - Provides device-side Morph, Flame and Sky effects on compatible matrix lamps
 - Provides writable infrared brightness controls on devices with infrared capability
@@ -36,6 +37,7 @@ The adapter configuration is available in the ioBroker Admin UI.
 - Group and location power states control all matching lights through the LIFX Cloud API. Scene states expose an activation button.
 - Each light has a writable `effect` state. Breathe and Pulse run on the light for the configured number of cycles. Color Loop is managed by the adapter and runs until `effect` is set to `off`; stopping an effect restores the color saved when it started.
 - Effect color, cycle period/count, pulse duty cycle, and Color Loop speed can be set in the Admin UI. Color Loop is only available for color-capable lights.
+- Moods are configured in the Admin UI with named presets and comma-separated `#RRGGBB` colors. A bulb picks a stable palette color; multizone strips blend the palette across their zones. Mood commands on synchronized groups and locations apply to locally discovered member lights.
 - Multizone lights get a writable `zoneEffect` state for the firmware Move effect. Its cycle duration and direction are configurable in the Admin UI. The effect is sent to and runs on the light itself.
 - Infrared-capable lights get a writable `infraredBrightness` state from 0 to 100 percent. The adapter reads and writes the device's maximum infrared brightness.
 - Each light has a writable `rename` command. It writes the new name to the LIFX device and updates the reported `label` state. LIFX labels are limited to 32 UTF-8 bytes.

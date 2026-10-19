@@ -12,6 +12,9 @@ class FakeClient extends EventEmitter {
     light(id) {
         return lights.get(id);
     }
+    lights() {
+        return [...lights.values()];
+    }
     init() {}
 }
 
@@ -91,6 +94,65 @@ test('rename command calls the device and updates the label and channel name', a
     assert.deepEqual(adapter.states.get('Bulb_renameme.rename'), { val: 'Hallway', ack: true });
     assert.equal(adapter.objects.get('Bulb_renameme').common.name, 'LIFX Hallway');
     await assert.rejects(adapter.renameLight('renameme', 'ä'.repeat(17)), /32 UTF-8-Bytes/);
+});
+
+test('mood command applies configured color and acknowledges its preset', async () => {
+    let colorApplied;
+    lights.set('moodbulb', {
+        on(_duration, callback) { callback(null); },
+        color(hue, saturation, brightness, kelvin, duration, callback) {
+            colorApplied = { hue, saturation, brightness, kelvin, duration };
+            callback(null);
+        },
+    });
+    const adapter = startAdapter();
+    await adapter.createBasic('moodbulb', 'Mood bulb', 2500, 9000);
+    await adapter.createMood('moodbulb');
+    await adapter.executeMood('moodbulb', 'sunset');
+    assert.equal(colorApplied.duration, 1500);
+    assert.ok(colorApplied.hue >= 0 && colorApplied.hue < 360);
+    assert.equal(adapter.states.get('Bulb_moodbulb.mood').val, 'sunset');
+    assert.equal(adapter.states.get('Bulb_moodbulb.colormode').val, 'color');
+    lights.delete('moodbulb');
+});
+
+test('group mood applies a palette to local members', async () => {
+    const calls = [];
+    lights.set('groupbulb', {
+        id: 'groupbulb',
+        on(_duration, callback) { callback(null); },
+        color(hue, saturation, brightness, kelvin, duration, callback) {
+            calls.push({ hue, saturation, brightness, kelvin, duration });
+            callback(null);
+        },
+    });
+    const adapter = startAdapter();
+    adapter.states.set('Bulb_groupbulb.groupId', { val: 'lifx-group-1', ack: true });
+    adapter.states.set('Bulb_groupbulb.colorLamp', { val: true, ack: true });
+    adapter.objects.set('Groups.group_1', { native: { lifxId: 'lifx-group-1' } });
+    await adapter.executeCollectionMood('Groups.group_1.mood', 'ocean');
+    assert.equal(calls.length, 1);
+    assert.equal(adapter.states.get('Bulb_groupbulb.mood').val, 'ocean');
+    lights.delete('groupbulb');
+});
+
+test('mood palette blends across multizone strip zones', async () => {
+    const colors = [];
+    lights.set('stripbulb', {
+        on(_duration, callback) { callback(null); },
+        getColorZones(_start, _end, callback) { callback(null, { count: 3 }); },
+        colorZones(_start, _end, hue, saturation, brightness, kelvin, _duration, _apply, callback) {
+            colors.push({ hue, saturation, brightness, kelvin });
+            callback(null);
+        },
+    });
+    const adapter = startAdapter();
+    adapter.states.set('Bulb_stripbulb.multizoneLamp', { val: true, ack: true });
+    await adapter.executeMood('stripbulb', 'sunset');
+    assert.equal(colors.length, 3);
+    assert.notEqual(colors[0].hue, colors[2].hue);
+    assert.ok(adapter.objects.has('Bulb_stripbulb.zone_2.hue'));
+    lights.delete('stripbulb');
 });
 
 test('matrix effect command sends a Tile packet and acknowledges the selected effect', async () => {

@@ -149,6 +149,41 @@
         }
       }
     },
+    "moods": {
+      "type": "panel",
+      "label": { "en": "Moods", "de": "Stimmungen" },
+      "items": {
+        "_moodsHelp": {
+          "type": "staticText",
+          "text": {
+            "en": "Moods apply a saved color palette to a lamp, group or location. Multizone strips blend the colors across their zones; single-color lamps select a palette color consistently. Enable the feature, then edit the preset table. Enter a unique lowercase ID, a display name and comma-separated #RRGGBB colors. Group/location mood controls require Cloud synchronization and local lamp discovery.",
+            "de": "Stimmungen wenden eine Farbpalette auf eine Lampe, Gruppe oder einen Standort an. Lightstrips mit mehreren Zonen verteilen die Farben als Verlauf; einfarbige Lampen wählen eine feste Farbe aus der Palette. Aktiviere die Funktion und bearbeite anschließend die Preset-Tabelle. Trage eine eindeutige ID in Kleinbuchstaben, einen Anzeigenamen und kommagetrennte Farben im Format #RRGGBB ein. Gruppen- und Standortsteuerung benötigen Cloud-Synchronisierung und lokal erkannte Lampen."
+          }
+        },
+        "moodsEnabled": {
+          "type": "checkbox",
+          "label": { "en": "Enable mood controls", "de": "Stimmungssteuerung aktivieren" },
+          "default": true
+        },
+        "moodTransitionDuration": {
+          "type": "number",
+          "label": { "en": "Mood transition duration (milliseconds)", "de": "Übergangsdauer der Stimmung (Millisekunden)" },
+          "min": 0,
+          "max": 60000,
+          "default": 1500
+        },
+        "moodPresets": {
+          "type": "table",
+          "label": { "en": "Mood presets", "de": "Stimmungspresets" },
+          "uniqueColumns": ["id"],
+          "items": [
+            { "type": "text", "attr": "id", "title": { "en": "ID", "de": "ID" }, "width": "20%" },
+            { "type": "text", "attr": "name", "title": { "en": "Name", "de": "Name" }, "width": "25%" },
+            { "type": "text", "attr": "colors", "title": { "en": "Colors (#RRGGBB, comma-separated)", "de": "Farben (#RRGGBB, kommagetrennt)" }, "width": "55%" }
+          ]
+        }
+      }
+    },
     "multizone": {
       "type": "panel",
       "label": { "en": "Lightstrips", "de": "Lightstrips" },

@@ -105,6 +105,15 @@
     "effectKelvin": 3500,
     "effectPulseDuty": 0.5,
     "effectColorLoopInterval": 3000,
+    "moodsEnabled": true,
+    "moodTransitionDuration": 1500,
+    "moodPresets": [
+      { "id": "sunset", "name": "Sonnenuntergang", "colors": "#FF4B1F,#FF9A3C,#6B2D70" },
+      { "id": "ocean", "name": "Ozean", "colors": "#082C8C,#007FA8,#62E6D8" },
+      { "id": "forest", "name": "Wald", "colors": "#123D2B,#32834A,#B4D68A" },
+      { "id": "aurora", "name": "Polarlicht", "colors": "#163A9B,#00C99A,#9B54E8" },
+      { "id": "cozy", "name": "Gemütlich", "colors": "#FF6A2A,#FFB34A,#FFE0A0" }
+    ],
     "multiZoneMoveSpeed": 1500,
     "multiZoneMoveAway": false,
     "tileEffectSpeed": 1500,

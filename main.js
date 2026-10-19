@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 // const fs = require("node:fs");
 const LifxClient = require('lifx-lan-client').Client;
 const tileEffects = require('./lib/tile-effects');
+const moods = require('./lib/moods');
 const client = new LifxClient();
 let lifxTimeout;
 let diagnosticsTimeout;
@@ -185,6 +186,9 @@ class Lifx extends utils.Adapter {
                 ack: true,
             });
         }
+        if (this.config.moodsEnabled !== false && (features.color === true || features.multizone === true)) {
+            await this.createMood(light.id);
+        }
 
         if (features.multizone === true) {
             await this.createZoneEffect(light.id);
@@ -298,6 +302,100 @@ class Lifx extends utils.Adapter {
         if (state == null || state.val == null) {
             await this.setStateAsync(`Bulb_${id}.tileEffect`, { val: 'off', ack: true });
         }
+    }
+
+    async createMood(id) {
+        const presets = moods.normalizeMoodPresets(this.config.moodPresets);
+        const states = { none: 'Keine Stimmung' };
+        for (const preset of presets) states[preset.id] = preset.name;
+        await this.setObjectNotExistsAsync(`Bulb_${id}.mood`, {
+            type: 'state',
+            common: {
+                name: 'Stimmung',
+                type: 'string',
+                role: 'text',
+                read: true,
+                write: true,
+                states,
+                desc: 'Wendet eine konfigurierbare Farbpalette auf diese Lampe an',
+            },
+            native: {},
+        });
+        await this.extendObjectAsync(`Bulb_${id}.mood`, { common: { states } });
+        const state = await this.getStateAsync(`Bulb_${id}.mood`);
+        if (state == null || !Object.hasOwn(states, String(state.val))) {
+            await this.setStateAsync(`Bulb_${id}.mood`, { val: 'none', ack: true });
+        }
+    }
+
+    async executeMood(id, moodId, paletteIndex) {
+        const light = client.light(id);
+        if (!light) throw new Error(`LIFX device ${id} is not available`);
+        const preset = moods.normalizeMoodPresets(this.config.moodPresets).find(item => item.id === moodId);
+        if (!preset) throw new Error(`Unknown mood '${moodId}'`);
+        const durationValue = Number(this.config.moodTransitionDuration);
+        const duration = Number.isFinite(durationValue) ? Math.min(60000, Math.max(0, durationValue)) : 1500;
+        if (typeof light.on === 'function') {
+            await new Promise((resolve, reject) => light.on(duration, error => error ? reject(error) : resolve()));
+        }
+        const zones = await this.getStateAsync(`Bulb_${id}.multizoneLamp`);
+        if (zones?.val === true && typeof light.colorZones === 'function') {
+            const info = await this.requestLightData(light, 'getColorZones', 0, 255);
+            const count = Math.max(0, Math.min(256, Number(info?.count) || 0));
+            if (count) {
+                for (let zone = 0; zone < count; zone++) {
+                    const color = moods.colorForZone(preset.colors, zone, count);
+                    await this.createZone(id, zone);
+                    await new Promise((resolve, reject) => {
+                        light.colorZones(zone, zone, color.hue, color.saturation, color.brightness, color.kelvin, duration, true,
+                            error => error ? reject(error) : resolve());
+                    });
+                    for (const [key, value] of [['hue', color.hue], ['sat', color.saturation], ['bright', color.brightness], ['temp', color.kelvin]]) {
+                        await this.setStateAsync(`Bulb_${id}.zone_${zone}.${key}`, { val: value, ack: true });
+                    }
+                    if (zone + 1 < count) await new Promise(resolve => setTimeout(resolve, 55));
+                }
+            }
+        } else if (typeof light.color === 'function') {
+            const color = Number.isInteger(paletteIndex) ? preset.colors[paletteIndex % preset.colors.length] :
+                moods.paletteColorForDevice(preset.colors, id);
+            await new Promise((resolve, reject) => {
+                light.color(color.hue, color.saturation, color.brightness, color.kelvin, duration,
+                    error => error ? reject(error) : resolve());
+            });
+            await this.setStateAsync(`Bulb_${id}.hue`, { val: color.hue, ack: true });
+            await this.setStateAsync(`Bulb_${id}.sat`, { val: color.saturation, ack: true });
+            await this.setStateAsync(`Bulb_${id}.bright`, { val: color.brightness, ack: true });
+            await this.setStateAsync(`Bulb_${id}.temp`, { val: color.kelvin, ack: true });
+            await this.setStateAsync(`Bulb_${id}.colormode`, { val: 'color', ack: true });
+        } else {
+            throw new Error(`LIFX device ${id} does not support color control`);
+        }
+        await this.setStateAsync(`Bulb_${id}.mood`, { val: moodId, ack: true });
+    }
+
+    async executeCollectionMood(relativeId, moodId) {
+        const collectionPath = relativeId.slice(0, relativeId.lastIndexOf('.'));
+        const object = await this.getObjectAsync(collectionPath);
+        const lifxId = object?.native?.lifxId;
+        if (!lifxId) throw new Error(`Could not identify collection for ${relativeId}`);
+        const isGroup = relativeId.startsWith('Groups.');
+        const matching = [];
+        for (const light of client.lights('')) {
+            const state = await this.getStateAsync(`Bulb_${light.id}.${isGroup ? 'groupId' : 'locationId'}`);
+            const color = await this.getStateAsync(`Bulb_${light.id}.colorLamp`);
+            const multizone = await this.getStateAsync(`Bulb_${light.id}.multizoneLamp`);
+            if (state?.val === lifxId && (color?.val === true || multizone?.val === true)) matching.push(light);
+        }
+        if (!matching.length) throw new Error(`No local lights found for ${collectionPath}`);
+        const normalized = moods.normalizeMoodPresets(this.config.moodPresets);
+        const preset = normalized.find(item => item.id === moodId);
+        if (!preset) throw new Error(`Unknown mood '${moodId}'`);
+        const results = await Promise.allSettled(
+            matching.map((light, index) => this.executeMood(light.id, moodId, index % preset.colors.length)),
+        );
+        const failures = results.filter(result => result.status === 'rejected');
+        if (failures.length) throw new Error(`${failures.length} von ${matching.length} Lampen konnten nicht geändert werden`);
     }
 
     nextTileSequence(id) {
@@ -574,14 +672,31 @@ class Lifx extends utils.Adapter {
                 common: { name: collection.name || id, role: 'channel' },
                 native: { lifxId: id },
             });
-            for (const [stateId, name, type, role, write] of [
+            const collectionStates = [
                 ['name', 'Name', 'string', 'info.name', false],
                 ['members', 'Lampen', 'string', 'json', false],
                 ['power', 'Ein/Aus', 'boolean', 'switch', true],
-            ]) {
+            ];
+            if (this.config.moodsEnabled !== false) collectionStates.push(['mood', 'Stimmung', 'string', 'text', true]);
+            const moodStates = { none: 'Keine Stimmung' };
+            for (const preset of moods.normalizeMoodPresets(this.config.moodPresets)) moodStates[preset.id] = preset.name;
+            for (const [stateId, name, type, role, write] of collectionStates) {
                 await this.setObjectNotExistsAsync(`${path}.${stateId}`, {
-                    type: 'state', common: { name, type, role, read: true, write }, native: {},
+                    type: 'state', common: {
+                        name, type, role, read: true, write,
+                        ...(stateId === 'mood' ? {
+                            states: moodStates,
+                            desc: 'Wendet die Stimmungs-Farbpalette auf alle lokal erreichbaren Lampen dieser Gruppe oder dieses Standorts an',
+                        } : {}),
+                    }, native: {},
                 });
+            }
+            if (this.config.moodsEnabled !== false) {
+                await this.extendObjectAsync(`${path}.mood`, { common: { states: moodStates } });
+                const currentMood = await this.getStateAsync(`${path}.mood`);
+                if (!currentMood || !Object.hasOwn(moodStates, String(currentMood.val))) {
+                    await this.setStateAsync(`${path}.mood`, { val: 'none', ack: true });
+                }
             }
             await this.setStateAsync(`${path}.name`, { val: collection.name || id, ack: true });
             await this.setStateAsync(`${path}.members`, { val: JSON.stringify(collection.members), ack: true });
@@ -608,6 +723,14 @@ class Lifx extends utils.Adapter {
 
     async executeCloudCommand(relativeId, state) {
         const parts = relativeId.split('.');
+        if ((parts[0] === 'Groups' || parts[0] === 'Locations') && parts.at(-1) === 'mood') {
+            try {
+                if (state.val && state.val !== 'none') await this.executeCollectionMood(relativeId, String(state.val));
+            } finally {
+                await this.setStateAsync(relativeId, { val: 'none', ack: true });
+            }
+            return true;
+        }
         if (parts[0] === 'Scenes' && parts.at(-1) === 'activate') {
             const object = await this.getObjectAsync(relativeId);
             const sceneId = object?.native?.sceneId;
@@ -1306,6 +1429,20 @@ class Lifx extends utils.Adapter {
                     } catch (error) {
                         this.log.warn(`Matrix effect command for ${lightId} failed: ${error.message || error}`);
                         await this.setStateAsync(relativeId, { val: 'off', ack: true });
+                    }
+                    return;
+                }
+                if (relativeId.startsWith('Bulb_') && relativeId.endsWith('.mood')) {
+                    const lightId = relativeId.slice('Bulb_'.length, -'.mood'.length);
+                    try {
+                        if (String(state.val) === 'none') {
+                            await this.setStateAsync(relativeId, { val: 'none', ack: true });
+                        } else {
+                            await this.executeMood(lightId, String(state.val));
+                        }
+                    } catch (error) {
+                        this.log.warn(`Mood command for ${lightId} failed: ${error.message || error}`);
+                        await this.setStateAsync(relativeId, { val: 'none', ack: true });
                     }
                     return;
                 }
