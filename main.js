@@ -11,6 +11,7 @@ const LifxClient = require('lifx-lan-client').Client;
 const tileEffects = require('./lib/tile-effects');
 const moods = require('./lib/moods');
 const routines = require('./lib/routines');
+const LifxDeviceManagement = require('./lib/device-management');
 const client = new LifxClient();
 let lifxTimeout;
 let diagnosticsTimeout;
@@ -30,6 +31,7 @@ class Lifx extends utils.Adapter {
             ...options,
             name: 'lifx-smart-lighting',
         });
+        this.deviceManagement = new LifxDeviceManagement(this, () => client.lights());
         this.stopping = false;
         this.lastRoutineRuns = new Map();
         this.zoneBrightness = new Map();

@@ -49,9 +49,16 @@ class FakeAdapter extends EventEmitter {
     subscribeStates() {}
 }
 
+class FakeDeviceManagement {
+    constructor(adapter) {
+        this.adapter = adapter;
+    }
+}
+
 const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
     if (request === '@iobroker/adapter-core') return { Adapter: FakeAdapter };
+    if (request === '@iobroker/dm-utils') return { DeviceManagement: FakeDeviceManagement };
     if (request === 'lifx-lan-client') return { Client: FakeClient };
     return originalLoad.call(this, request, parent, isMain);
 };
@@ -66,6 +73,42 @@ test('adapter creates an explicit rename command while keeping reported label re
     assert.equal(adapter.objects.get('Bulb_testbulb.rename').common.type, 'string');
     assert.deepEqual(adapter.states.get('Bulb_testbulb.label'), { val: 'Test bulb', ack: true });
     assert.deepEqual(adapter.states.get('Bulb_testbulb.rename'), { val: 'Test bulb', ack: true });
+});
+
+test('device manager exposes discovered lamps with usable controls and rename action', async () => {
+    const adapter = startAdapter();
+    const id = 'managerbulb';
+    let deviceLabel;
+    lights.set(id, { id, setLabel(value, callback) { deviceLabel = value; callback(null); } });
+    await adapter.createBasic(id, 'Manager bulb', 2500, 9000);
+    await adapter.setObjectNotExistsAsync(`Bulb_${id}.vendor`, { type: 'state' });
+    await adapter.setObjectNotExistsAsync(`Bulb_${id}.product`, { type: 'state' });
+    await adapter.setObjectNotExistsAsync(`Bulb_${id}.colorLamp`, { type: 'state' });
+    await adapter.setStateAsync(`Bulb_${id}.colorLamp`, { val: true, ack: true });
+
+    const devices = [];
+    let total;
+    await adapter.deviceManagement.loadDevices({
+        setTotalDevices(count) { total = count; },
+        addDevice(device) { devices.push(device); },
+    });
+
+    assert.equal(total, 1);
+    assert.equal(devices.length, 1);
+    assert.equal(devices[0].name.stateId, `Bulb_${id}.label`);
+    assert.equal(devices[0].status.connection.stateId, `Bulb_${id}.online`);
+    assert.deepEqual(devices[0].controls.map(control => control.stateId), [
+        `Bulb_${id}.state`, `Bulb_${id}.bright`, `Bulb_${id}.temp`, `Bulb_${id}.hue`, `Bulb_${id}.sat`,
+    ]);
+    assert.equal(devices[0].actions[0].id, 'rename');
+    assert.equal(devices[0].hasDetails, true);
+    const actionResult = await devices[0].actions[0].handler(id, {
+        async showForm() { return { label: 'Configured in Admin' }; },
+    });
+    assert.equal(actionResult.refresh, 'all');
+    assert.equal(deviceLabel, 'Configured in Admin');
+    assert.equal(adapter.states.get(`Bulb_${id}.label`).val, 'Configured in Admin');
+    lights.delete(id);
 });
 
 test('infrared command uses maxIR and acknowledges the applied percentage', async () => {

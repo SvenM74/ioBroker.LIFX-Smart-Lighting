@@ -23,6 +23,7 @@ An ioBroker adapter for discovering and controlling LIFX lamps on the local netw
 - Provides device-side Morph, Flame and Sky effects on compatible matrix lamps
 - Provides writable infrared brightness controls on devices with infrared capability
 - Provides a `rename` command to change a lamp's label on the device
+- Integrates discovered lamps into the ioBroker Device Manager with power, brightness, temperature and supported color controls
 - Runs unit tests and package-content checks in GitHub Actions
 - Creates objects before writing state values
 - Uses its own adapter ID and state namespace: lifx-smart-lighting.0
@@ -34,6 +35,8 @@ Install from this repository in ioBroker. The adapter requires Node.js 22 or new
 ## Configuration
 
 The adapter configuration is available in the ioBroker Admin UI.
+
+The **Device Manager** tab lists discovered lamps as cards. From a card, you can switch a lamp, adjust brightness and color temperature, and rename it. Hue and saturation controls appear for color-capable lamps. Expand a card to view the product, hardware and firmware versions, Wi-Fi signal value, and last-seen time. Device Manager requires Admin 7.8.20 or newer.
 
 - Local device polling defaults to 30 seconds.
 - Wi-Fi and firmware diagnostics are enabled by default and run every five minutes.
@@ -51,7 +54,7 @@ The adapter configuration is available in the ioBroker Admin UI.
 - Infrared-capable lights get a writable `infraredBrightness` state from 0 to 100 percent. The adapter reads and writes the device's maximum infrared brightness.
 - Each light has a writable `rename` command. It writes the new name to the LIFX device and updates the reported `label` state. LIFX labels are limited to 32 UTF-8 bytes.
 - Matrix-capable Tile, Candle and Ceiling devices get a writable `tileEffect` state with `off`, `morph`, `flame` and `sky`. Morph uses three configurable hue values. Flame uses the device's firmware palette. Sky is restricted to Ceiling devices running firmware 4.4 or newer. Its cycle speed and Sky variant are configurable in Admin.
-- Admin settings are separated into tabs for devices, Cloud groups/locations/scenes, standard light effects, lightstrips and matrix effects. Every tab includes a short explanation of its controls and related states.
+- Admin settings are separated into tabs for local devices, Device Manager, Cloud groups/locations/scenes, standard light effects, lightstrips and matrix effects. Every configuration tab includes a short explanation of its controls and related states.
 
 The Cloud API token is stored as a protected, encrypted native configuration value. Local discovery and control continue to work when Cloud integration is disabled. Cloud synchronization requires internet access and a valid token.
 
