@@ -79,7 +79,13 @@ test('device manager exposes discovered lamps with usable controls and rename ac
     const adapter = startAdapter();
     const id = 'managerbulb';
     let deviceLabel;
-    lights.set(id, { id, setLabel(value, callback) { deviceLabel = value; callback(null); } });
+    lights.set(id, {
+        id,
+        setLabel(value, callback) { deviceLabel = value; callback(null); },
+        on(_duration, callback) { callback(null); },
+        off(_duration, callback) { callback(null); },
+        color(_hue, _sat, _bright, _kelvin, _duration, callback) { callback(null); },
+    });
     await adapter.createBasic(id, 'Manager bulb', 2500, 9000);
     await adapter.setObjectNotExistsAsync(`Bulb_${id}.vendor`, { type: 'state' });
     await adapter.setObjectNotExistsAsync(`Bulb_${id}.product`, { type: 'state' });
@@ -100,14 +106,71 @@ test('device manager exposes discovered lamps with usable controls and rename ac
     assert.deepEqual(devices[0].controls.map(control => control.stateId), [
         `Bulb_${id}.state`, `Bulb_${id}.bright`, `Bulb_${id}.temp`, `Bulb_${id}.hue`, `Bulb_${id}.sat`,
     ]);
-    assert.equal(devices[0].actions[0].id, 'rename');
+    assert.deepEqual(devices[0].actions.map(action => action.id), ['configure', 'refresh', 'rename']);
     assert.equal(devices[0].hasDetails, true);
-    const actionResult = await devices[0].actions[0].handler(id, {
-        async showForm() { return { label: 'Configured in Admin' }; },
+    let submittedForm;
+    const actionResult = await devices[0].actions.find(action => action.id === 'configure').handler(id, {
+        async showForm(schema, options) {
+            submittedForm = { schema, options };
+            return { power: true, brightness: 48, color: '#336699' };
+        },
     });
     assert.equal(actionResult.refresh, 'all');
+    assert.ok(submittedForm.schema.items.color);
+    assert.equal(submittedForm.options.data.brightness, 0);
+    assert.equal(adapter.states.get(`Bulb_${id}.bright`).val, 48);
+    const renameResult = await devices[0].actions.find(action => action.id === 'rename').handler(id, {
+        async showForm() { return { label: 'Configured in Admin' }; },
+    });
+    assert.equal(renameResult.refresh, 'all');
     assert.equal(deviceLabel, 'Configured in Admin');
     assert.equal(adapter.states.get(`Bulb_${id}.label`).val, 'Configured in Admin');
+    lights.delete(id);
+});
+
+test('Device Manager configuration applies power, brightness and selected color', async () => {
+    const applied = {};
+    lights.set('configbulb', {
+        on(duration, callback) { applied.power = ['on', duration]; callback(null); },
+        off(duration, callback) { applied.power = ['off', duration]; callback(null); },
+        color(hue, saturation, brightness, kelvin, duration, callback) {
+            Object.assign(applied, { hue, saturation, brightness, kelvin, duration });
+            callback(null);
+        },
+    });
+    const adapter = startAdapter();
+    await adapter.createBasic('configbulb', 'Config bulb', 2500, 9000);
+    await adapter.createColor('configbulb');
+    await adapter.setStateAsync('Bulb_configbulb.colorLamp', { val: true, ack: true });
+    await adapter.setStateAsync('Bulb_configbulb.temp', { val: 4000, ack: true });
+    await adapter.configureLight('configbulb', { power: true, brightness: 65, color: '#00ff00' });
+    assert.deepEqual(applied, { power: ['on', 500], hue: 120, saturation: 100, brightness: 65, kelvin: 4000, duration: 500 });
+    assert.equal(adapter.states.get('Bulb_configbulb.state').val, true);
+    assert.equal(adapter.states.get('Bulb_configbulb.bright').val, 65);
+    assert.equal(adapter.states.get('Bulb_configbulb.colormode').val, 'color');
+    lights.delete('configbulb');
+});
+
+test('Device Manager refresh deletes stale lamp data points and recreates discovered ones', async () => {
+    const id = 'refreshbulb';
+    lights.set(id, {
+        id,
+        getHardwareVersion(callback) {
+            callback(null, { vendorName: 'LIFX', productName: 'Color bulb', version: '1', productFeatures: { color: false, temperature_range: [2500, 9000] } });
+        },
+        getState(callback) {
+            callback(null, { label: 'Refreshed lamp', power: 1, color: { brightness: 70, kelvin: 3500 } });
+        },
+    });
+    const adapter = startAdapter();
+    await adapter.createBasic(id, 'Old lamp', 2500, 9000);
+    await adapter.setObjectNotExistsAsync(`Bulb_${id}.stale`, { type: 'state' });
+    await adapter.setStateAsync(`Bulb_${id}.stale`, { val: 'remove', ack: true });
+    await adapter.refreshLightObjects(id);
+    assert.equal(await adapter.getObjectAsync(`Bulb_${id}.stale`), null);
+    assert.equal((await adapter.getObjectAsync(`Bulb_${id}.bright`)).common.write, true);
+    assert.equal(adapter.states.get(`Bulb_${id}.label`).val, 'Refreshed lamp');
+    assert.equal(adapter.states.get(`Bulb_${id}.state`).val, true);
     lights.delete(id);
 });
 

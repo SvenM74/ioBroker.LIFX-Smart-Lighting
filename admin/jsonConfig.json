@@ -41,8 +41,8 @@
         "_deviceManagerHelp": {
           "type": "staticText",
           "text": {
-            "en": "The Device Manager lists discovered LIFX lamps. Use the cards to switch lamps, adjust brightness and color, or rename a lamp. Color controls are shown only for color-capable lamps.",
-            "de": "Die Geräteverwaltung listet erkannte LIFX-Lampen. Über die Gerätekarten können Sie Lampen schalten, Helligkeit und Farbe einstellen oder eine Lampe umbenennen. Farbregler erscheinen nur bei farbfähigen Lampen."
+            "en": "The Device Manager lists discovered LIFX lamps. The Configure button opens power and brightness settings, plus a color picker for color-capable lamps. Refresh data points deletes and recreates every data point for that lamp after confirmation. Rename changes the label stored on the lamp.",
+            "de": "Die Geräteverwaltung listet erkannte LIFX-Lampen. Der Button Konfigurieren öffnet Einstellungen für Ein/Aus und Helligkeit sowie einen Farbwähler bei farbfähigen Lampen. Datenpunkte aktualisieren löscht nach Bestätigung alle Datenpunkte dieser Lampe und legt sie neu an. Umbenennen ändert den auf der Lampe gespeicherten Namen."
           }
         },
         "_dm": {

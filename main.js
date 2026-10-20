@@ -531,6 +531,95 @@ class Lifx extends utils.Adapter {
         await this.extendObjectAsync(`Bulb_${id}`, { common: { name: `LIFX ${value}` } });
     }
 
+    async configureLight(id, config) {
+        const light = client.light(id);
+        if (!light) throw new Error(`LIFX light ${id} is not available`);
+        const brightness = Number(config?.brightness);
+        if (!Number.isFinite(brightness) || brightness < 0 || brightness > 100) {
+            throw new Error('Helligkeit muss zwischen 0 und 100 Prozent liegen');
+        }
+
+        const currentKelvin = await this.getStateAsync(`Bulb_${id}.temp`);
+        const currentDuration = await this.getStateAsync(`Bulb_${id}.duration`);
+        const kelvin = Number(currentKelvin?.val) || 3500;
+        const duration = Number(currentDuration?.val) || 500;
+        const colorLamp = (await this.getStateAsync(`Bulb_${id}.colorLamp`))?.val === true;
+        let hue = 0;
+        let saturation = 0;
+        if (colorLamp) {
+            const match = /^#?([\da-f]{6})$/i.exec(String(config?.color || ''));
+            if (!match) throw new Error('Bitte eine gültige Farbe im Format #RRGGBB auswählen');
+            const channels = match[1].match(/../g).map(value => parseInt(value, 16) / 255);
+            const [red, green, blue] = channels;
+            const max = Math.max(red, green, blue);
+            const min = Math.min(red, green, blue);
+            const delta = max - min;
+            if (delta) {
+                if (max === red) hue = 60 * (((green - blue) / delta) % 6);
+                else if (max === green) hue = 60 * ((blue - red) / delta + 2);
+                else hue = 60 * ((red - green) / delta + 4);
+                if (hue < 0) hue += 360;
+            }
+            saturation = max === 0 ? 0 : (delta / max) * 100;
+        }
+
+        const applyPower = () => new Promise((resolve, reject) => {
+            const turnOn = config?.power === true;
+            const method = turnOn ? light.on : light.off;
+            if (typeof method !== 'function') return reject(new Error(`LIFX light ${id} does not support power control`));
+            method.call(light, duration, error => error ? reject(error) : resolve());
+        });
+        const applyColor = () => new Promise((resolve, reject) => {
+            if (typeof light.color !== 'function') return reject(new Error(`LIFX light ${id} does not support color control`));
+            light.color(hue, saturation, brightness, kelvin, duration, error => error ? reject(error) : resolve());
+        });
+
+        await applyPower();
+        await applyColor();
+        await this.setStateAsync(`Bulb_${id}.state`, { val: config?.power === true, ack: true });
+        await this.setStateAsync(`Bulb_${id}.bright`, { val: brightness, ack: true });
+        if (colorLamp) {
+            await this.setStateAsync(`Bulb_${id}.hue`, { val: hue, ack: true });
+            await this.setStateAsync(`Bulb_${id}.sat`, { val: saturation, ack: true });
+            await this.setStateAsync(`Bulb_${id}.colormode`, { val: 'color', ack: true });
+        } else if (await this.getObjectAsync(`Bulb_${id}.colormode`)) {
+            await this.setStateAsync(`Bulb_${id}.colormode`, { val: 'white', ack: true });
+        }
+    }
+
+    async refreshLightObjects(id) {
+        const light = client.light(id);
+        if (!light) throw new Error(`LIFX light ${id} is not available`);
+        this.refreshingLights ||= new Set();
+        if (this.refreshingLights.has(id)) return;
+        this.refreshingLights.add(id);
+        try {
+            await this.stopEffect(id, false);
+            if (moveEffects.has(id) && typeof light.setMultiZoneEffect === 'function') {
+                await new Promise(resolve => light.setMultiZoneEffect('OFF', 1500, 'TOWARDS', () => resolve()));
+            }
+            moveEffects.delete(id);
+            if (runningTileEffects.has(id)) {
+                await tileEffects.sendTileEffect(light, {
+                    source: /^[0-9a-f]{8}$/i.test(client.source || '') ? client.source : '4c465831',
+                    sequence: this.nextTileSequence(id),
+                    effect: 'off',
+                    instanceid: tileEffectInstances.get(id),
+                    speed: 1500,
+                }).catch(error => this.log.debug(`Could not stop matrix effect before refreshing ${id}: ${error.message || error}`));
+            }
+            runningTileEffects.delete(id);
+            tileEffectInstances.delete(id);
+            for (const key of [...this.zoneBrightness.keys()]) {
+                if (key.startsWith(`${id}:`)) this.zoneBrightness.delete(key);
+            }
+            await this.delObjectAsync(`Bulb_${id}`, { recursive: true });
+            await this.handleNewLight(light);
+        } finally {
+            this.refreshingLights.delete(id);
+        }
+    }
+
     async executeZoneEffect(id, effect) {
         const light = client.light(id);
         const speedValue = Number(this.config.multiZoneMoveSpeed);

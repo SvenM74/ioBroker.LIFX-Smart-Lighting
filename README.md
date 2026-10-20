@@ -36,7 +36,7 @@ Install from this repository in ioBroker. The adapter requires Node.js 22 or new
 
 The adapter configuration is available in the ioBroker Admin UI.
 
-The **Device Manager** tab lists discovered lamps as cards. From a card, you can switch a lamp, adjust brightness and color temperature, and rename it. Hue and saturation controls appear for color-capable lamps. Expand a card to view the product, hardware and firmware versions, Wi-Fi signal value, and last-seen time. Device Manager requires Admin 7.8.20 or newer.
+The **Device Manager** tab lists discovered lamps as cards. The Configure action opens a form to switch a lamp and set brightness, with a color picker for color-capable lamps. Hue and saturation controls also appear on color-capable lamp cards. The Refresh data points action asks for confirmation, deletes all objects below that lamp, then rediscovers the device and recreates its data points. Rename changes the label on the lamp. Expand a card to view the product, hardware and firmware versions, Wi-Fi signal value, and last-seen time. Device Manager requires Admin 7.8.20 or newer.
 
 - Local device polling defaults to 30 seconds.
 - Wi-Fi and firmware diagnostics are enabled by default and run every five minutes.
